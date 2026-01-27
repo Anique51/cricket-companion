@@ -2,95 +2,118 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
+/* Cricket Scoring App Design System - Mobile-First Professional */
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* Cricket Field Green Palette */
+    --background: 145 20% 97%;
+    --foreground: 145 40% 10%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 145 40% 10%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover-foreground: 145 40% 10%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    /* Deep Cricket Green */
+    --primary: 145 45% 25%;
+    --primary-foreground: 45 30% 95%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    /* Cream White - Cricket Whites */
+    --secondary: 45 25% 96%;
+    --secondary-foreground: 145 40% 15%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    /* Muted greens */
+    --muted: 145 15% 92%;
+    --muted-foreground: 145 15% 45%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    /* Golden Amber Accent - For boundaries */
+    --accent: 38 90% 55%;
+    --accent-foreground: 38 90% 15%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    /* Wicket Red */
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --border: 145 20% 85%;
+    --input: 145 20% 90%;
+    --ring: 145 45% 30%;
 
-    --radius: 0.5rem;
+    --radius: 0.75rem;
 
-    --sidebar-background: 0 0% 98%;
+    /* Cricket-specific colors */
+    --cricket-field: 145 55% 35%;
+    --cricket-pitch: 45 40% 85%;
+    --cricket-boundary: 38 90% 55%;
+    --cricket-six: 280 70% 50%;
+    --cricket-four: 145 60% 45%;
+    --cricket-dot: 145 20% 75%;
+    --cricket-wide: 200 70% 50%;
+    --cricket-noball: 30 90% 55%;
+    --cricket-wicket: 0 72% 50%;
 
-    --sidebar-foreground: 240 5.3% 26.1%;
+    /* Gradients */
+    --gradient-field: linear-gradient(135deg, hsl(145 55% 35%), hsl(145 45% 25%));
+    --gradient-gold: linear-gradient(135deg, hsl(38 90% 55%), hsl(45 85% 50%));
+    --gradient-score: linear-gradient(180deg, hsl(0 0% 100%), hsl(145 15% 97%));
 
-    --sidebar-primary: 240 5.9% 10%;
+    /* Shadows */
+    --shadow-card: 0 4px 20px -4px hsl(145 40% 10% / 0.1);
+    --shadow-button: 0 4px 12px -2px hsl(145 40% 10% / 0.15);
+    --shadow-score: 0 8px 30px -8px hsl(145 40% 10% / 0.2);
 
-    --sidebar-primary-foreground: 0 0% 98%;
-
-    --sidebar-accent: 240 4.8% 95.9%;
-
-    --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-background: 145 20% 97%;
+    --sidebar-foreground: 145 40% 15%;
+    --sidebar-primary: 145 45% 25%;
+    --sidebar-primary-foreground: 45 30% 95%;
+    --sidebar-accent: 38 90% 55%;
+    --sidebar-accent-foreground: 38 90% 15%;
+    --sidebar-border: 145 20% 85%;
+    --sidebar-ring: 145 45% 30%;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+    --background: 145 25% 8%;
+    --foreground: 145 10% 95%;
 
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
+    --card: 145 25% 12%;
+    --card-foreground: 145 10% 95%;
 
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 145 25% 12%;
+    --popover-foreground: 145 10% 95%;
 
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    --primary: 145 45% 45%;
+    --primary-foreground: 145 40% 10%;
 
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 145 20% 18%;
+    --secondary-foreground: 145 10% 95%;
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
+    --muted: 145 20% 18%;
+    --muted-foreground: 145 15% 60%;
 
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 38 80% 50%;
+    --accent-foreground: 38 90% 10%;
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 65% 45%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --border: 145 20% 20%;
+    --input: 145 20% 20%;
+    --ring: 145 45% 45%;
+
+    --cricket-field: 145 45% 30%;
+    --cricket-pitch: 45 30% 30%;
+    --cricket-boundary: 38 80% 50%;
+
+    --sidebar-background: 145 25% 10%;
+    --sidebar-foreground: 145 10% 95%;
+    --sidebar-primary: 145 45% 45%;
+    --sidebar-primary-foreground: 145 40% 10%;
+    --sidebar-accent: 38 80% 50%;
+    --sidebar-accent-foreground: 38 90% 10%;
+    --sidebar-border: 145 20% 20%;
+    --sidebar-ring: 145 45% 45%;
   }
 }
 
@@ -100,6 +123,166 @@ All colors MUST be HSL.
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+
+  /* Mobile-first touch targets */
+  button, [role="button"] {
+    @apply min-h-[44px] touch-manipulation;
+  }
+}
+
+@layer components {
+  /* Score display styling */
+  .score-display {
+    @apply text-6xl font-black tracking-tight;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .score-display-large {
+    @apply text-7xl sm:text-8xl font-black tracking-tight;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Over timeline ball indicators */
+  .ball-indicator {
+    @apply w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-all duration-200;
+  }
+
+  .ball-dot {
+    @apply bg-muted text-muted-foreground border-2 border-muted-foreground/20;
+  }
+
+  .ball-runs {
+    @apply bg-primary text-primary-foreground;
+  }
+
+  .ball-four {
+    background: hsl(var(--cricket-four));
+    @apply text-white;
+  }
+
+  .ball-six {
+    background: hsl(var(--cricket-six));
+    @apply text-white;
+  }
+
+  .ball-wide {
+    background: hsl(var(--cricket-wide));
+    @apply text-white;
+  }
+
+  .ball-noball {
+    background: hsl(var(--cricket-noball));
+    @apply text-white;
+  }
+
+  .ball-wicket {
+    background: hsl(var(--cricket-wicket));
+    @apply text-white;
+  }
+
+  /* Scoring buttons */
+  .scoring-button {
+    @apply h-16 sm:h-20 text-lg sm:text-xl font-bold rounded-xl transition-all duration-150 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
+    box-shadow: var(--shadow-button);
+  }
+
+  .scoring-button-primary {
+    @apply scoring-button bg-primary text-primary-foreground hover:bg-primary/90;
+  }
+
+  .scoring-button-boundary {
+    @apply scoring-button text-white;
+    background: hsl(var(--cricket-four));
+  }
+
+  .scoring-button-six {
+    @apply scoring-button text-white;
+    background: hsl(var(--cricket-six));
+  }
+
+  .scoring-button-extra {
+    @apply scoring-button text-white;
+    background: hsl(var(--cricket-wide));
+  }
+
+  .scoring-button-noball {
+    @apply scoring-button text-white;
+    background: hsl(var(--cricket-noball));
+  }
+
+  .scoring-button-wicket {
+    @apply scoring-button text-white;
+    background: hsl(var(--cricket-wicket));
+  }
+
+  /* Card variants */
+  .card-score {
+    @apply bg-card rounded-2xl p-4 sm:p-6;
+    box-shadow: var(--shadow-card);
+  }
+
+  .card-player {
+    @apply bg-card rounded-xl p-3 sm:p-4 border border-border;
+  }
+
+  /* Navigation tabs */
+  .nav-tab {
+    @apply px-4 py-3 text-sm font-medium transition-all duration-200;
+  }
+
+  .nav-tab-active {
+    @apply nav-tab text-primary border-b-2 border-primary;
+  }
+
+  .nav-tab-inactive {
+    @apply nav-tab text-muted-foreground hover:text-foreground;
+  }
+
+  /* Processing overlay */
+  .processing-overlay {
+    @apply absolute inset-0 bg-background/60 backdrop-blur-sm flex items-center justify-center z-50 rounded-xl;
+  }
+}
+
+@layer utilities {
+  /* Safe area padding for mobile devices */
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+
+  .safe-top {
+    padding-top: env(safe-area-inset-top, 0);
+  }
+
+  /* Cricket field gradient background */
+  .bg-field-gradient {
+    background: var(--gradient-field);
+  }
+
+  /* Golden accent gradient */
+  .bg-gold-gradient {
+    background: var(--gradient-gold);
+  }
+
+  /* Smooth page transitions */
+  .page-transition {
+    @apply transition-all duration-300 ease-out;
+  }
+
+  /* Pulse animation for processing state */
+  .pulse-processing {
+    animation: pulse-processing 1.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse-processing {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
   }
 }
