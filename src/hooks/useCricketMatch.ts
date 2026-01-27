@@ -1,0 +1,789 @@
+import { useState, useCallback, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import type { 
+  Match, Innings, Over, Delivery, Player, 
+  BatsmanInningsStats, BowlerInningsStats, ScoringAction 
+} from '@/types/cricket';
+import { toast } from 'sonner';
+
+interface UseCricketMatchReturn {
+  match: Match | null;
+  currentInnings: Innings | null;
+  currentOver: Over | null;
+  currentBatsman: Player | null;
+  currentBowler: Player | null;
+  batsmanStats: BatsmanInningsStats | null;
+  bowlerStats: BowlerInningsStats | null;
+  deliveries: Delivery[];
+  legalBallCount: number;
+  isProcessingDelivery: boolean;
+  isLoading: boolean;
+  
+  // Actions
+  recordDelivery: (action: ScoringAction) => Promise<void>;
+  selectNewBatsman: (playerId: string) => Promise<void>;
+  selectNewBowler: (playerId: string) => Promise<void>;
+  startSecondInnings: (battingTeamId: string, batsmanId: string, bowlerId: string) => Promise<void>;
+  loadMatch: (matchId: string) => Promise<void>;
+  
+  // Modals
+  showBatsmanModal: boolean;
+  showBowlerModal: boolean;
+  showInningsSummary: boolean;
+  showMatchResult: boolean;
+  setShowBatsmanModal: (show: boolean) => void;
+  setShowBowlerModal: (show: boolean) => void;
+  setShowInningsSummary: (show: boolean) => void;
+  setShowMatchResult: (show: boolean) => void;
+  
+  // For wicket on last ball
+  pendingBowlerChange: boolean;
+}
+
+export function useCricketMatch(): UseCricketMatchReturn {
+  const [match, setMatch] = useState<Match | null>(null);
+  const [currentInnings, setCurrentInnings] = useState<Innings | null>(null);
+  const [currentOver, setCurrentOver] = useState<Over | null>(null);
+  const [currentBatsman, setCurrentBatsman] = useState<Player | null>(null);
+  const [currentBowler, setCurrentBowler] = useState<Player | null>(null);
+  const [batsmanStats, setBatsmanStats] = useState<BatsmanInningsStats | null>(null);
+  const [bowlerStats, setBowlerStats] = useState<BowlerInningsStats | null>(null);
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
+  const [legalBallCount, setLegalBallCount] = useState(0);
+  const [isProcessingDelivery, setIsProcessingDelivery] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  
+  // Modals
+  const [showBatsmanModal, setShowBatsmanModal] = useState(false);
+  const [showBowlerModal, setShowBowlerModal] = useState(false);
+  const [showInningsSummary, setShowInningsSummary] = useState(false);
+  const [showMatchResult, setShowMatchResult] = useState(false);
+  const [pendingBowlerChange, setPendingBowlerChange] = useState(false);
+
+  // Load current over deliveries
+  const loadDeliveries = useCallback(async (overId: string) => {
+    const { data, error } = await supabase
+      .from('deliveries')
+      .select('*')
+      .eq('over_id', overId)
+      .order('ball_number', { ascending: true });
+    
+    if (error) {
+      console.error('Error loading deliveries:', error);
+      return;
+    }
+    
+    setDeliveries(data || []);
+    const legal = (data || []).filter(d => d.is_legal_delivery).length;
+    setLegalBallCount(legal);
+  }, []);
+
+  // Load match state
+  const loadMatch = useCallback(async (matchId: string) => {
+    setIsLoading(true);
+    try {
+      // Load match
+      const { data: matchData, error: matchError } = await supabase
+        .from('matches')
+        .select('*')
+        .eq('id', matchId)
+        .single();
+      
+      if (matchError) throw matchError;
+      setMatch(matchData);
+
+      // Load current innings
+      const { data: inningsData } = await supabase
+        .from('innings')
+        .select('*')
+        .eq('match_id', matchId)
+        .eq('is_completed', false)
+        .order('innings_number', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      
+      if (inningsData) {
+        setCurrentInnings(inningsData);
+
+        // Load current over
+        const { data: overData } = await supabase
+          .from('overs')
+          .select('*')
+          .eq('innings_id', inningsData.id)
+          .eq('is_completed', false)
+          .order('over_number', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        
+        if (overData) {
+          setCurrentOver(overData);
+          await loadDeliveries(overData.id);
+
+          // Load bowler
+          const { data: bowlerData } = await supabase
+            .from('players')
+            .select('*')
+            .eq('id', overData.bowler_id)
+            .single();
+          
+          if (bowlerData) setCurrentBowler(bowlerData);
+
+          // Load bowler stats
+          const { data: bowlerStatsData } = await supabase
+            .from('bowler_innings_stats')
+            .select('*')
+            .eq('innings_id', inningsData.id)
+            .eq('bowler_id', overData.bowler_id)
+            .maybeSingle();
+          
+          if (bowlerStatsData) setBowlerStats(bowlerStatsData);
+        }
+
+        // Load current batsman (not out)
+        const { data: batsmanStatsData } = await supabase
+          .from('batsman_innings_stats')
+          .select('*')
+          .eq('innings_id', inningsData.id)
+          .eq('is_out', false)
+          .order('batting_order', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        
+        if (batsmanStatsData) {
+          setBatsmanStats(batsmanStatsData);
+
+          const { data: batsmanData } = await supabase
+            .from('players')
+            .select('*')
+            .eq('id', batsmanStatsData.batsman_id)
+            .single();
+          
+          if (batsmanData) setCurrentBatsman(batsmanData);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading match:', error);
+      toast.error('Failed to load match');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [loadDeliveries]);
+
+  // Check if innings should end (all wickets or overs complete)
+  const checkInningsEnd = useCallback(async (innings: Innings, totalOvers: number) => {
+    const maxWickets = 10; // Standard cricket
+    const oversCompleted = Math.floor(innings.total_overs_completed);
+    
+    if (innings.total_wickets >= maxWickets || oversCompleted >= totalOvers) {
+      // End innings
+      await supabase
+        .from('innings')
+        .update({ is_completed: true })
+        .eq('id', innings.id);
+      
+      if (innings.innings_number === 1) {
+        setShowInningsSummary(true);
+      } else {
+        // Second innings complete - determine result
+        const { data: firstInnings } = await supabase
+          .from('innings')
+          .select('total_runs')
+          .eq('match_id', innings.match_id)
+          .eq('innings_number', 1)
+          .single();
+        
+        if (firstInnings) {
+          const target = firstInnings.total_runs + 1;
+          let winnerId: string | null = null;
+          let resultDesc = '';
+          
+          if (innings.total_runs >= target) {
+            winnerId = innings.batting_team_id;
+            const wicketsRemaining = maxWickets - innings.total_wickets;
+            resultDesc = `Won by ${wicketsRemaining} wicket${wicketsRemaining !== 1 ? 's' : ''}`;
+          } else {
+            winnerId = innings.bowling_team_id;
+            const runsDiff = target - innings.total_runs - 1;
+            resultDesc = `Won by ${runsDiff} run${runsDiff !== 1 ? 's' : ''}`;
+          }
+          
+          await supabase
+            .from('matches')
+            .update({ 
+              status: 'completed', 
+              winner_team_id: winnerId,
+              result_description: resultDesc,
+              completed_at: new Date().toISOString()
+            })
+            .eq('id', innings.match_id);
+          
+          setMatch(prev => prev ? { 
+            ...prev, 
+            status: 'completed', 
+            winner_team_id: winnerId,
+            result_description: resultDesc 
+          } : null);
+          
+          setShowMatchResult(true);
+        }
+      }
+      return true;
+    }
+    return false;
+  }, []);
+
+  // Check if chasing team won (during second innings)
+  const checkChasingWin = useCallback(async (innings: Innings) => {
+    if (innings.innings_number !== 2) return false;
+    
+    const { data: firstInnings } = await supabase
+      .from('innings')
+      .select('total_runs')
+      .eq('match_id', innings.match_id)
+      .eq('innings_number', 1)
+      .single();
+    
+    if (firstInnings) {
+      const target = firstInnings.total_runs + 1;
+      if (innings.total_runs >= target) {
+        // Chasing team wins!
+        const wicketsRemaining = 10 - innings.total_wickets;
+        const resultDesc = `Won by ${wicketsRemaining} wicket${wicketsRemaining !== 1 ? 's' : ''}`;
+        
+        await supabase
+          .from('innings')
+          .update({ is_completed: true })
+          .eq('id', innings.id);
+        
+        await supabase
+          .from('matches')
+          .update({ 
+            status: 'completed', 
+            winner_team_id: innings.batting_team_id,
+            result_description: resultDesc,
+            completed_at: new Date().toISOString()
+          })
+          .eq('id', innings.match_id);
+        
+        setMatch(prev => prev ? { 
+          ...prev, 
+          status: 'completed', 
+          winner_team_id: innings.batting_team_id,
+          result_description: resultDesc 
+        } : null);
+        
+        setShowMatchResult(true);
+        return true;
+      }
+    }
+    return false;
+  }, []);
+
+  // Record a delivery - ATOMIC OPERATION
+  const recordDelivery = useCallback(async (action: ScoringAction) => {
+    if (isProcessingDelivery || !currentOver || !currentInnings || !currentBatsman || !currentBowler || !match) {
+      return;
+    }
+
+    setIsProcessingDelivery(true);
+    
+    try {
+      const isLegal = action !== 'wide' && action !== 'noball';
+      const newLegalCount = isLegal ? legalBallCount + 1 : legalBallCount;
+      
+      let runs = 0;
+      let isWide = false;
+      let isNoBall = false;
+      let isWicket = false;
+      let isFour = false;
+      let isSix = false;
+
+      switch (action) {
+        case 'dot':
+          runs = 0;
+          break;
+        case 'four':
+          runs = 4;
+          isFour = true;
+          break;
+        case 'six':
+          runs = 6;
+          isSix = true;
+          break;
+        case 'wide':
+          runs = 1;
+          isWide = true;
+          break;
+        case 'noball':
+          runs = 1;
+          isNoBall = true;
+          break;
+        case 'wicket':
+          runs = 0;
+          isWicket = true;
+          break;
+      }
+
+      // 1. Insert delivery
+      const ballNumber = deliveries.length + 1;
+      const { data: newDelivery, error: deliveryError } = await supabase
+        .from('deliveries')
+        .insert({
+          over_id: currentOver.id,
+          innings_id: currentInnings.id,
+          ball_number: ballNumber,
+          is_legal_delivery: isLegal,
+          runs_scored: runs,
+          is_wide: isWide,
+          is_no_ball: isNoBall,
+          is_wicket: isWicket,
+          batsman_id: currentBatsman.id,
+          bowler_id: currentBowler.id
+        })
+        .select()
+        .single();
+
+      if (deliveryError) throw deliveryError;
+
+      // 2. Update innings stats
+      const newTotalRuns = currentInnings.total_runs + runs;
+      const newTotalWickets = currentInnings.total_wickets + (isWicket ? 1 : 0);
+      const newExtras = currentInnings.total_extras + (isWide || isNoBall ? 1 : 0);
+      
+      await supabase
+        .from('innings')
+        .update({
+          total_runs: newTotalRuns,
+          total_wickets: newTotalWickets,
+          total_extras: newExtras
+        })
+        .eq('id', currentInnings.id);
+
+      // 3. Update batsman stats
+      const newBatsmanRuns = (batsmanStats?.runs_scored || 0) + (isWide ? 0 : runs);
+      const newBallsFaced = (batsmanStats?.balls_faced || 0) + (isLegal && !isWide ? 1 : 0);
+      const newFours = (batsmanStats?.fours || 0) + (isFour ? 1 : 0);
+      const newSixes = (batsmanStats?.sixes || 0) + (isSix ? 1 : 0);
+      
+      await supabase
+        .from('batsman_innings_stats')
+        .update({
+          runs_scored: newBatsmanRuns,
+          balls_faced: newBallsFaced,
+          fours: newFours,
+          sixes: newSixes,
+          is_out: isWicket
+        })
+        .eq('id', batsmanStats?.id);
+
+      // 4. Update bowler stats
+      const newBowlerRuns = (bowlerStats?.runs_conceded || 0) + runs;
+      const newWickets = (bowlerStats?.wickets_taken || 0) + (isWicket ? 1 : 0);
+      const newWides = (bowlerStats?.wides || 0) + (isWide ? 1 : 0);
+      const newNoBalls = (bowlerStats?.no_balls || 0) + (isNoBall ? 1 : 0);
+      
+      await supabase
+        .from('bowler_innings_stats')
+        .update({
+          runs_conceded: newBowlerRuns,
+          wickets_taken: newWickets,
+          wides: newWides,
+          no_balls: newNoBalls
+        })
+        .eq('id', bowlerStats?.id);
+
+      // 5. Update over stats
+      await supabase
+        .from('overs')
+        .update({
+          runs_conceded: currentOver.runs_conceded + runs,
+          wickets_taken: currentOver.wickets_taken + (isWicket ? 1 : 0)
+        })
+        .eq('id', currentOver.id);
+
+      // Update local state
+      setDeliveries(prev => [...prev, newDelivery]);
+      setLegalBallCount(newLegalCount);
+      
+      setCurrentInnings(prev => prev ? {
+        ...prev,
+        total_runs: newTotalRuns,
+        total_wickets: newTotalWickets,
+        total_extras: newExtras
+      } : null);
+
+      setBatsmanStats(prev => prev ? {
+        ...prev,
+        runs_scored: newBatsmanRuns,
+        balls_faced: newBallsFaced,
+        fours: newFours,
+        sixes: newSixes,
+        is_out: isWicket
+      } : null);
+
+      setBowlerStats(prev => prev ? {
+        ...prev,
+        runs_conceded: newBowlerRuns,
+        wickets_taken: newWickets,
+        wides: newWides,
+        no_balls: newNoBalls
+      } : null);
+
+      // Check for chasing win first
+      const updatedInnings = {
+        ...currentInnings,
+        total_runs: newTotalRuns,
+        total_wickets: newTotalWickets
+      };
+      
+      const chasingWon = await checkChasingWin(updatedInnings);
+      if (chasingWon) {
+        setIsProcessingDelivery(false);
+        return;
+      }
+
+      // Handle wicket
+      if (isWicket) {
+        // Check if all out
+        if (newTotalWickets >= 10) {
+          const inningsEnded = await checkInningsEnd({
+            ...currentInnings,
+            total_runs: newTotalRuns,
+            total_wickets: newTotalWickets,
+            total_overs_completed: currentInnings.total_overs_completed
+          }, match.total_overs);
+          
+          if (!inningsEnded) {
+            // Need new batsman, and if last ball, also new bowler
+            if (newLegalCount >= 6) {
+              setPendingBowlerChange(true);
+            }
+            setShowBatsmanModal(true);
+          }
+        } else {
+          // Just need new batsman
+          if (newLegalCount >= 6) {
+            setPendingBowlerChange(true);
+          }
+          setShowBatsmanModal(true);
+        }
+      } else if (newLegalCount >= 6) {
+        // Over complete - need new bowler
+        await completeOver(newTotalRuns);
+        setShowBowlerModal(true);
+      }
+
+    } catch (error) {
+      console.error('Error recording delivery:', error);
+      toast.error('Failed to record delivery');
+    } finally {
+      if (!showBatsmanModal && !showBowlerModal) {
+        setIsProcessingDelivery(false);
+      }
+    }
+  }, [
+    isProcessingDelivery, currentOver, currentInnings, currentBatsman, 
+    currentBowler, match, batsmanStats, bowlerStats, deliveries, 
+    legalBallCount, checkChasingWin, checkInningsEnd
+  ]);
+
+  // Complete current over
+  const completeOver = useCallback(async (totalRuns?: number) => {
+    if (!currentOver || !currentInnings || !bowlerStats) return;
+
+    const completedOvers = Math.floor(currentInnings.total_overs_completed) + 1;
+    
+    await supabase
+      .from('overs')
+      .update({ is_completed: true })
+      .eq('id', currentOver.id);
+
+    // Update bowler overs
+    await supabase
+      .from('bowler_innings_stats')
+      .update({ overs_bowled: (bowlerStats.overs_bowled || 0) + 1 })
+      .eq('id', bowlerStats.id);
+
+    // Update innings overs completed
+    await supabase
+      .from('innings')
+      .update({ total_overs_completed: completedOvers })
+      .eq('id', currentInnings.id);
+
+    setCurrentInnings(prev => prev ? {
+      ...prev,
+      total_overs_completed: completedOvers
+    } : null);
+
+    // Reset for new over
+    setDeliveries([]);
+    setLegalBallCount(0);
+  }, [currentOver, currentInnings, bowlerStats]);
+
+  // Select new batsman after wicket
+  const selectNewBatsman = useCallback(async (playerId: string) => {
+    if (!currentInnings) return;
+    
+    try {
+      // Get batting order
+      const { data: existingStats } = await supabase
+        .from('batsman_innings_stats')
+        .select('batting_order')
+        .eq('innings_id', currentInnings.id)
+        .order('batting_order', { ascending: false })
+        .limit(1);
+      
+      const newOrder = (existingStats?.[0]?.batting_order || 0) + 1;
+
+      // Create new batsman stats
+      const { data: newStats, error } = await supabase
+        .from('batsman_innings_stats')
+        .insert({
+          innings_id: currentInnings.id,
+          batsman_id: playerId,
+          runs_scored: 0,
+          balls_faced: 0,
+          fours: 0,
+          sixes: 0,
+          is_out: false,
+          batting_order: newOrder
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Load new batsman
+      const { data: batsmanData } = await supabase
+        .from('players')
+        .select('*')
+        .eq('id', playerId)
+        .single();
+
+      setCurrentBatsman(batsmanData);
+      setBatsmanStats(newStats);
+      setShowBatsmanModal(false);
+
+      // If wicket was on last ball, now show bowler modal
+      if (pendingBowlerChange) {
+        await completeOver();
+        setPendingBowlerChange(false);
+        setShowBowlerModal(true);
+      } else {
+        setIsProcessingDelivery(false);
+      }
+
+    } catch (error) {
+      console.error('Error selecting batsman:', error);
+      toast.error('Failed to select batsman');
+    }
+  }, [currentInnings, pendingBowlerChange, completeOver]);
+
+  // Select new bowler for new over
+  const selectNewBowler = useCallback(async (playerId: string) => {
+    if (!currentInnings || !match) return;
+    
+    try {
+      // Create new over
+      const newOverNumber = Math.floor(currentInnings.total_overs_completed) + 1;
+      
+      // Check if innings should end
+      if (newOverNumber > match.total_overs) {
+        await checkInningsEnd(currentInnings, match.total_overs);
+        setShowBowlerModal(false);
+        setIsProcessingDelivery(false);
+        return;
+      }
+
+      const { data: newOver, error: overError } = await supabase
+        .from('overs')
+        .insert({
+          innings_id: currentInnings.id,
+          over_number: newOverNumber,
+          bowler_id: playerId,
+          runs_conceded: 0,
+          wickets_taken: 0,
+          is_completed: false
+        })
+        .select()
+        .single();
+
+      if (overError) throw overError;
+
+      // Get or create bowler stats
+      let newBowlerStats;
+      const { data: existingStats } = await supabase
+        .from('bowler_innings_stats')
+        .select('*')
+        .eq('innings_id', currentInnings.id)
+        .eq('bowler_id', playerId)
+        .maybeSingle();
+
+      if (existingStats) {
+        newBowlerStats = existingStats;
+      } else {
+        const { data: createdStats } = await supabase
+          .from('bowler_innings_stats')
+          .insert({
+            innings_id: currentInnings.id,
+            bowler_id: playerId,
+            overs_bowled: 0,
+            runs_conceded: 0,
+            wickets_taken: 0,
+            wides: 0,
+            no_balls: 0
+          })
+          .select()
+          .single();
+        
+        newBowlerStats = createdStats;
+      }
+
+      // Load bowler
+      const { data: bowlerData } = await supabase
+        .from('players')
+        .select('*')
+        .eq('id', playerId)
+        .single();
+
+      setCurrentOver(newOver);
+      setCurrentBowler(bowlerData);
+      setBowlerStats(newBowlerStats);
+      setDeliveries([]);
+      setLegalBallCount(0);
+      setShowBowlerModal(false);
+      setIsProcessingDelivery(false);
+
+    } catch (error) {
+      console.error('Error selecting bowler:', error);
+      toast.error('Failed to select bowler');
+    }
+  }, [currentInnings, match, checkInningsEnd]);
+
+  // Start second innings
+  const startSecondInnings = useCallback(async (
+    battingTeamId: string, 
+    batsmanId: string, 
+    bowlerId: string
+  ) => {
+    if (!match) return;
+    
+    try {
+      const bowlingTeamId = battingTeamId === match.team1_id ? match.team2_id : match.team1_id;
+
+      // Create second innings
+      const { data: newInnings, error: inningsError } = await supabase
+        .from('innings')
+        .insert({
+          match_id: match.id,
+          innings_number: 2,
+          batting_team_id: battingTeamId,
+          bowling_team_id: bowlingTeamId,
+          total_runs: 0,
+          total_wickets: 0,
+          total_overs_completed: 0,
+          total_extras: 0,
+          is_completed: false
+        })
+        .select()
+        .single();
+
+      if (inningsError) throw inningsError;
+
+      // Create first over
+      const { data: newOver, error: overError } = await supabase
+        .from('overs')
+        .insert({
+          innings_id: newInnings.id,
+          over_number: 1,
+          bowler_id: bowlerId,
+          runs_conceded: 0,
+          wickets_taken: 0,
+          is_completed: false
+        })
+        .select()
+        .single();
+
+      if (overError) throw overError;
+
+      // Create batsman stats
+      const { data: newBatsmanStats } = await supabase
+        .from('batsman_innings_stats')
+        .insert({
+          innings_id: newInnings.id,
+          batsman_id: batsmanId,
+          runs_scored: 0,
+          balls_faced: 0,
+          fours: 0,
+          sixes: 0,
+          is_out: false,
+          batting_order: 1
+        })
+        .select()
+        .single();
+
+      // Create bowler stats
+      const { data: newBowlerStats } = await supabase
+        .from('bowler_innings_stats')
+        .insert({
+          innings_id: newInnings.id,
+          bowler_id: bowlerId,
+          overs_bowled: 0,
+          runs_conceded: 0,
+          wickets_taken: 0,
+          wides: 0,
+          no_balls: 0
+        })
+        .select()
+        .single();
+
+      // Load players
+      const [batsmanRes, bowlerRes] = await Promise.all([
+        supabase.from('players').select('*').eq('id', batsmanId).single(),
+        supabase.from('players').select('*').eq('id', bowlerId).single()
+      ]);
+
+      setCurrentInnings(newInnings);
+      setCurrentOver(newOver);
+      setCurrentBatsman(batsmanRes.data);
+      setCurrentBowler(bowlerRes.data);
+      setBatsmanStats(newBatsmanStats);
+      setBowlerStats(newBowlerStats);
+      setDeliveries([]);
+      setLegalBallCount(0);
+      setShowInningsSummary(false);
+
+    } catch (error) {
+      console.error('Error starting second innings:', error);
+      toast.error('Failed to start second innings');
+    }
+  }, [match]);
+
+  return {
+    match,
+    currentInnings,
+    currentOver,
+    currentBatsman,
+    currentBowler,
+    batsmanStats,
+    bowlerStats,
+    deliveries,
+    legalBallCount,
+    isProcessingDelivery,
+    isLoading,
+    recordDelivery,
+    selectNewBatsman,
+    selectNewBowler,
+    startSecondInnings,
+    loadMatch,
+    showBatsmanModal,
+    showBowlerModal,
+    showInningsSummary,
+    showMatchResult,
+    setShowBatsmanModal,
+    setShowBowlerModal,
+    setShowInningsSummary,
+    setShowMatchResult,
+    pendingBowlerChange
+  };
+}
