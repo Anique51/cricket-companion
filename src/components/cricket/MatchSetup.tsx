@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { MainLayout } from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { Team, Player } from '@/types/cricket';
@@ -21,9 +22,6 @@ export function MatchSetup() {
   const [battingTeamId, setBattingTeamId] = useState<string>('');
   const [openingBatsmanId, setOpeningBatsmanId] = useState<string>('');
   const [openingBowlerId, setOpeningBowlerId] = useState<string>('');
-
-  // Current step
-  const [step, setStep] = useState(1);
 
   useEffect(() => {
     loadTeamsAndPlayers();
@@ -153,17 +151,19 @@ export function MatchSetup() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-muted-foreground">Loading...</div>
-      </div>
+      <MainLayout hideNav>
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-muted-foreground">Loading...</div>
+        </div>
+      </MainLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background safe-top safe-bottom">
+    <MainLayout hideNav>
       {/* Header */}
-      <header className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-border">
-        <div className="flex items-center gap-3 p-4">
+      <header className="sticky top-0 z-10 bg-card/95 backdrop-blur border-b border-border">
+        <div className="flex items-center gap-3 p-4 max-w-md mx-auto">
           <button onClick={() => navigate('/')} className="p-2 -ml-2">
             <ChevronLeft className="w-6 h-6" />
           </button>
@@ -306,6 +306,6 @@ export function MatchSetup() {
           </Button>
         )}
       </main>
-    </div>
+    </MainLayout>
   );
 }

@@ -4,17 +4,25 @@ import type { Player, BowlerInningsStats } from '@/types/cricket';
 interface BowlerCardProps {
   bowler: Player | null;
   stats: BowlerInningsStats | null;
+  currentOverBalls?: number;
   className?: string;
 }
 
-export function BowlerCard({ bowler, stats, className }: BowlerCardProps) {
-  const overs = stats?.overs_bowled ?? 0;
+export function BowlerCard({ bowler, stats, currentOverBalls = 0, className }: BowlerCardProps) {
+  const completedOvers = stats?.overs_bowled ?? 0;
   const runs = stats?.runs_conceded ?? 0;
   const wickets = stats?.wickets_taken ?? 0;
   const wides = stats?.wides ?? 0;
   const noBalls = stats?.no_balls ?? 0;
   
-  const economy = overs > 0 ? (runs / overs).toFixed(2) : '0.00';
+  // Display overs including current over balls
+  const oversDisplay = currentOverBalls > 0 
+    ? `${completedOvers}.${currentOverBalls}` 
+    : `${completedOvers}`;
+  
+  // Calculate actual overs for economy
+  const actualOvers = completedOvers + (currentOverBalls / 6);
+  const economy = actualOvers > 0 ? (runs / actualOvers).toFixed(2) : '0.00';
 
   return (
     <div className={cn("card-player", className)}>
@@ -31,7 +39,7 @@ export function BowlerCard({ bowler, stats, className }: BowlerCardProps) {
             {bowler?.name || 'Select Bowler'}
           </h3>
           <div className="flex gap-3 text-xs text-muted-foreground mt-1">
-            <span>{overs}ov</span>
+            <span>{oversDisplay} ov</span>
             <span>Econ: {economy}</span>
             <span>Wd: {wides}</span>
             <span>Nb: {noBalls}</span>

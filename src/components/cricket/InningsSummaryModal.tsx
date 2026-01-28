@@ -1,6 +1,6 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import type { Innings, Team, BatsmanInningsStats, BowlerInningsStats } from '@/types/cricket';
+import type { Innings, Team } from '@/types/cricket';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -51,9 +51,10 @@ export function InningsSummaryModal({
         .single();
       
       if (player) {
+        // Format: 30 (12)
         setTopScorer({
           name: player.name,
-          stat: `${batsmanStats.runs_scored} (${batsmanStats.balls_faced}b)`
+          stat: `${batsmanStats.runs_scored} (${batsmanStats.balls_faced})`
         });
       }
     }
@@ -75,9 +76,10 @@ export function InningsSummaryModal({
         .single();
       
       if (player) {
+        // Format: 2/28 (2)
         setTopWicketTaker({
           name: player.name,
-          stat: `${bowlerStats.wickets_taken}/${bowlerStats.runs_conceded} (${bowlerStats.overs_bowled}ov)`
+          stat: `${bowlerStats.wickets_taken}/${bowlerStats.runs_conceded} (${bowlerStats.overs_bowled})`
         });
       }
     }

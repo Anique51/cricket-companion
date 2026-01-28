@@ -1,20 +1,23 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { MainLayout } from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
-import type { Match, Team } from '@/types/cricket';
-import { Plus, BarChart3, Users, Trophy, Clock } from 'lucide-react';
+import type { Match, Team, Innings } from '@/types/cricket';
+import { Plus, Clock, Trophy, TrendingUp } from 'lucide-react';
 
 export default function Index() {
   const navigate = useNavigate();
-  const [recentMatches, setRecentMatches] = useState<(Match & { team1?: Team; team2?: Team })[]>([]);
+  const [recentMatches, setRecentMatches] = useState<(Match & { team1?: Team; team2?: Team; innings1?: Innings; innings2?: Innings })[]>([]);
   const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({ matches: 0, teams: 0, players: 0 });
 
   useEffect(() => {
-    loadRecentMatches();
+    loadData();
   }, []);
 
-  const loadRecentMatches = async () => {
+  const loadData = async () => {
+    // Load recent matches
     const { data: matches } = await supabase
       .from('matches')
       .select('*')
@@ -23,19 +26,58 @@ export default function Index() {
 
     if (matches) {
       const withTeams = await Promise.all(matches.map(async (match) => {
-        const [t1, t2] = await Promise.all([
+        const [t1, t2, inningsRes] = await Promise.all([
           supabase.from('teams').select('*').eq('id', match.team1_id).single(),
-          supabase.from('teams').select('*').eq('id', match.team2_id).single()
+          supabase.from('teams').select('*').eq('id', match.team2_id).single(),
+          supabase.from('innings').select('*').eq('match_id', match.id).order('innings_number')
         ]);
-        return { ...match, team1: t1.data || undefined, team2: t2.data || undefined };
+        return { 
+          ...match, 
+          team1: t1.data || undefined, 
+          team2: t2.data || undefined,
+          innings1: inningsRes.data?.[0] || undefined,
+          innings2: inningsRes.data?.[1] || undefined
+        };
       }));
       setRecentMatches(withTeams);
     }
+
+    // Load stats
+    const [matchesCount, teamsCount, playersCount] = await Promise.all([
+      supabase.from('matches').select('id', { count: 'exact', head: true }),
+      supabase.from('teams').select('id', { count: 'exact', head: true }),
+      supabase.from('players').select('id', { count: 'exact', head: true })
+    ]);
+
+    setStats({
+      matches: matchesCount.count || 0,
+      teams: teamsCount.count || 0,
+      players: playersCount.count || 0
+    });
+
     setLoading(false);
   };
 
+  const getScoreDisplay = (match: typeof recentMatches[0]) => {
+    if (!match.innings1) return null;
+    const team1Score = match.innings1.batting_team_id === match.team1_id 
+      ? match.innings1 
+      : match.innings2;
+    const team2Score = match.innings1.batting_team_id === match.team2_id 
+      ? match.innings1 
+      : match.innings2;
+    
+    return (
+      <div className="text-xs text-muted-foreground mt-1">
+        {match.team1?.short_name}: {team1Score?.total_runs ?? '-'}/{team1Score?.total_wickets ?? '-'}
+        {' • '}
+        {match.team2?.short_name}: {team2Score?.total_runs ?? '-'}/{team2Score?.total_wickets ?? '-'}
+      </div>
+    );
+  };
+
   return (
-    <div className="min-h-screen bg-background safe-top safe-bottom">
+    <MainLayout>
       {/* Hero Header */}
       <header className="bg-field-gradient text-primary-foreground p-6 pb-8">
         <div className="max-w-lg mx-auto">
@@ -44,26 +86,30 @@ export default function Index() {
         </div>
       </header>
 
-      <main className="p-4 max-w-lg mx-auto -mt-4">
+      <main className="p-4 max-w-lg mx-auto -mt-4 space-y-6">
         {/* Quick Actions */}
-        <div className="card-score mb-6">
-          <Button onClick={() => navigate('/new-match')} className="w-full h-14 text-lg font-bold mb-3">
+        <div className="card-score">
+          <Button onClick={() => navigate('/new-match')} className="w-full h-14 text-lg font-bold">
             <Plus className="w-5 h-5 mr-2" /> New Match
           </Button>
-          
-          <div className="grid grid-cols-3 gap-2">
-            <Button variant="outline" onClick={() => navigate('/dashboard')} className="h-12 flex-col gap-1">
-              <BarChart3 className="w-4 h-4" />
-              <span className="text-xs">Dashboard</span>
-            </Button>
-            <Button variant="outline" onClick={() => navigate('/teams')} className="h-12 flex-col gap-1">
-              <Users className="w-4 h-4" />
-              <span className="text-xs">Teams</span>
-            </Button>
-            <Button variant="outline" onClick={() => navigate('/stats')} className="h-12 flex-col gap-1">
-              <Trophy className="w-4 h-4" />
-              <span className="text-xs">Stats</span>
-            </Button>
+        </div>
+
+        {/* Quick Stats */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="card-player text-center">
+            <TrendingUp className="w-5 h-5 mx-auto text-primary mb-1" />
+            <span className="text-2xl font-black text-foreground">{stats.matches}</span>
+            <span className="text-xs text-muted-foreground block">Matches</span>
+          </div>
+          <div className="card-player text-center">
+            <Trophy className="w-5 h-5 mx-auto text-accent mb-1" />
+            <span className="text-2xl font-black text-foreground">{stats.teams}</span>
+            <span className="text-xs text-muted-foreground block">Teams</span>
+          </div>
+          <div className="card-player text-center">
+            <Clock className="w-5 h-5 mx-auto text-cricket-six mb-1" />
+            <span className="text-2xl font-black text-foreground">{stats.players}</span>
+            <span className="text-xs text-muted-foreground block">Players</span>
           </div>
         </div>
 
@@ -97,6 +143,7 @@ export default function Index() {
                       <span className="text-xs text-muted-foreground block">
                         {match.total_overs} overs • {new Date(match.created_at).toLocaleDateString()}
                       </span>
+                      {getScoreDisplay(match)}
                     </div>
                     <span className={`text-xs px-2 py-1 rounded-full ${
                       match.status === 'completed' ? 'bg-primary/10 text-primary' :
@@ -115,6 +162,6 @@ export default function Index() {
           )}
         </section>
       </main>
-    </div>
+    </MainLayout>
   );
 }

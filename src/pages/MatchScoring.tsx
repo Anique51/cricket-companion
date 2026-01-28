@@ -11,8 +11,13 @@ import { PlayerSelectModal } from '@/components/cricket/PlayerSelectModal';
 import { InningsSummaryModal } from '@/components/cricket/InningsSummaryModal';
 import { MatchResultModal } from '@/components/cricket/MatchResultModal';
 import { SecondInningsSetup } from '@/components/cricket/SecondInningsSetup';
+import { FullScorecard } from '@/components/cricket/FullScorecard';
+import { MainLayout } from '@/components/layout/MainLayout';
+import { Button } from '@/components/ui/button';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import type { Team, Innings } from '@/types/cricket';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, MoreVertical, FileText, StopCircle } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 export default function MatchScoring() {
   const { matchId } = useParams<{ matchId: string }>();
@@ -39,7 +44,10 @@ export default function MatchScoring() {
     showBowlerModal,
     showInningsSummary,
     showMatchResult,
-    setShowInningsSummary
+    setShowInningsSummary,
+    endInningsManually,
+    endMatchManually,
+    dismissedBatsmanIds
   } = useCricketMatch();
 
   const [team1, setTeam1] = useState<Team | null>(null);
@@ -48,6 +56,7 @@ export default function MatchScoring() {
   const [bowlingTeam, setBowlingTeam] = useState<Team | null>(null);
   const [firstInnings, setFirstInnings] = useState<Innings | null>(null);
   const [showSecondInningsSetup, setShowSecondInningsSetup] = useState(false);
+  const [showScorecard, setShowScorecard] = useState(false);
 
   // Load match on mount
   useEffect(() => {
@@ -140,9 +149,11 @@ export default function MatchScoring() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-muted-foreground">Loading match...</div>
-      </div>
+      <MainLayout hideNav>
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-muted-foreground">Loading match...</div>
+        </div>
+      </MainLayout>
     );
   }
 
@@ -162,22 +173,79 @@ export default function MatchScoring() {
   const matchCompleted = match?.status === 'completed';
 
   return (
-    <div className="min-h-screen bg-background safe-top safe-bottom flex flex-col">
+    <MainLayout hideNav>
       {/* Header */}
       <header className="sticky top-0 z-10 bg-field-gradient text-primary-foreground">
-        <div className="flex items-center gap-3 p-4">
-          <button onClick={() => navigate('/')} className="p-2 -ml-2 hover:bg-white/10 rounded-full transition-colors">
-            <ChevronLeft className="w-6 h-6" />
-          </button>
-          <div>
-            <h1 className="font-bold">
-              {team1?.short_name || team1?.name} vs {team2?.short_name || team2?.name}
-            </h1>
-            <p className="text-xs opacity-80">
-              {match?.total_overs} overs match
-              {currentOver && ` • Over ${currentOver.over_number}`}
-            </p>
+        <div className="flex items-center justify-between p-4 max-w-lg mx-auto">
+          <div className="flex items-center gap-3">
+            <button onClick={() => navigate('/')} className="p-2 -ml-2 hover:bg-white/10 rounded-full transition-colors">
+              <ChevronLeft className="w-6 h-6" />
+            </button>
+            <div>
+              <h1 className="font-bold">
+                {team1?.short_name || team1?.name} vs {team2?.short_name || team2?.name}
+              </h1>
+              <p className="text-xs opacity-80">
+                {match?.total_overs} overs match
+                {currentOver && ` • Over ${currentOver.over_number}`}
+              </p>
+            </div>
           </div>
+          
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                <MoreVertical className="w-5 h-5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setShowScorecard(true)}>
+                <FileText className="w-4 h-4 mr-2" /> View Scorecard
+              </DropdownMenuItem>
+              {!matchCompleted && currentInnings && (
+                <>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                        <StopCircle className="w-4 h-4 mr-2" /> End Innings
+                      </DropdownMenuItem>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>End Innings?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will end the current innings. This action cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={endInningsManually}>End Innings</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive">
+                        <StopCircle className="w-4 h-4 mr-2" /> End Match
+                      </DropdownMenuItem>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>End Match?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will end the match immediately. The current score will be saved. This action cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={endMatchManually} className="bg-destructive hover:bg-destructive/90">End Match</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
 
@@ -188,12 +256,14 @@ export default function MatchScoring() {
           battingTeam={battingTeam}
           totalOvers={match?.total_overs || 10}
           target={target}
+          currentOver={currentOver}
+          legalBallCount={legalBallCount}
         />
 
         {/* Player Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <BatsmanCard batsman={currentBatsman} stats={batsmanStats} />
-          <BowlerCard bowler={currentBowler} stats={bowlerStats} />
+          <BowlerCard bowler={currentBowler} stats={bowlerStats} currentOverBalls={legalBallCount} />
         </div>
 
         {/* Over Timeline */}
@@ -212,6 +282,9 @@ export default function MatchScoring() {
           <div className="text-center py-8">
             <p className="text-lg font-medium text-muted-foreground">Match Completed</p>
             <p className="text-xl font-bold text-foreground mt-1">{match?.result_description}</p>
+            <Button onClick={() => setShowScorecard(true)} variant="outline" className="mt-4">
+              <FileText className="w-4 h-4 mr-2" /> View Full Scorecard
+            </Button>
           </div>
         )}
       </main>
@@ -222,6 +295,7 @@ export default function MatchScoring() {
         onSelect={selectNewBatsman}
         title="Select New Batsman"
         teamId={currentInnings?.batting_team_id || ''}
+        excludePlayerIds={dismissedBatsmanIds}
         type="batsman"
       />
 
@@ -246,6 +320,14 @@ export default function MatchScoring() {
         team1={team1}
         team2={team2}
       />
-    </div>
+
+      <FullScorecard
+        open={showScorecard}
+        onClose={() => setShowScorecard(false)}
+        matchId={matchId || ''}
+        team1={team1}
+        team2={team2}
+      />
+    </MainLayout>
   );
 }

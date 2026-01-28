@@ -28,7 +28,7 @@ export function PlayerSelectModal({
     if (open && teamId) {
       loadPlayers();
     }
-  }, [open, teamId]);
+  }, [open, teamId, excludePlayerIds]);
 
   const loadPlayers = async () => {
     setLoading(true);
@@ -39,7 +39,9 @@ export function PlayerSelectModal({
       .order('name');
     
     if (!error && data) {
-      setPlayers(data.filter(p => !excludePlayerIds.includes(p.id)));
+      // Filter out excluded players (dismissed batsmen)
+      const availablePlayers = data.filter(p => !excludePlayerIds.includes(p.id));
+      setPlayers(availablePlayers);
     }
     setLoading(false);
   };
@@ -54,6 +56,10 @@ export function PlayerSelectModal({
         <div className="overflow-y-auto max-h-[60vh] -mx-6 px-6">
           {loading ? (
             <div className="py-8 text-center text-muted-foreground">Loading players...</div>
+          ) : players.length === 0 ? (
+            <div className="py-8 text-center text-muted-foreground">
+              No available players
+            </div>
           ) : (
             <div className="space-y-2">
               {players.map((player) => (
