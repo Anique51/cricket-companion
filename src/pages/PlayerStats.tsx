@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { MainLayout } from '@/components/layout/MainLayout';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { Team, Player } from '@/types/cricket';
-import { ChevronLeft, Search, User } from 'lucide-react';
+import { Search, User } from 'lucide-react';
 
 interface PlayerStatsData {
   player: Player;
@@ -17,7 +17,6 @@ interface PlayerStatsData {
 }
 
 export default function PlayerStats() {
-  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [teams, setTeams] = useState<Team[]>([]);
   const [playerStats, setPlayerStats] = useState<PlayerStatsData[]>([]);
@@ -90,20 +89,19 @@ export default function PlayerStats() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-muted-foreground">Loading player stats...</div>
-      </div>
+      <MainLayout>
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-muted-foreground">Loading player stats...</div>
+        </div>
+      </MainLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background safe-top safe-bottom">
+    <MainLayout>
       {/* Header */}
-      <header className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-border">
-        <div className="flex items-center gap-3 p-4">
-          <button onClick={() => navigate('/')} className="p-2 -ml-2">
-            <ChevronLeft className="w-6 h-6" />
-          </button>
+      <header className="sticky top-0 z-10 bg-card/95 backdrop-blur border-b border-border">
+        <div className="p-4 max-w-lg mx-auto">
           <h1 className="text-xl font-bold">Player Stats</h1>
         </div>
       </header>
@@ -177,6 +175,6 @@ export default function PlayerStats() {
           )}
         </div>
       </main>
-    </div>
+    </MainLayout>
   );
 }

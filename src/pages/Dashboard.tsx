@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
-import type { Team, Match, Player } from '@/types/cricket';
-import { ChevronLeft, Trophy, Target, Zap, CircleDot } from 'lucide-react';
+import { MainLayout } from '@/components/layout/MainLayout';
+import type { Team, Player } from '@/types/cricket';
+import { Trophy, Target, Zap, CircleDot } from 'lucide-react';
 
 interface TeamStatsData {
   team: Team;
@@ -20,7 +20,6 @@ interface PlayerStatsData {
 }
 
 export default function Dashboard() {
-  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [teamStats, setTeamStats] = useState<TeamStatsData[]>([]);
   const [topRunScorers, setTopRunScorers] = useState<PlayerStatsData[]>([]);
@@ -119,24 +118,21 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-muted-foreground">Loading dashboard...</div>
-      </div>
+      <MainLayout>
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-muted-foreground">Loading dashboard...</div>
+        </div>
+      </MainLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background safe-top safe-bottom">
+    <MainLayout>
       {/* Header */}
       <header className="sticky top-0 z-10 bg-field-gradient text-primary-foreground">
-        <div className="flex items-center gap-3 p-4">
-          <button onClick={() => navigate('/')} className="p-2 -ml-2 hover:bg-white/10 rounded-full transition-colors">
-            <ChevronLeft className="w-6 h-6" />
-          </button>
-          <div>
-            <h1 className="text-xl font-bold">Dashboard</h1>
-            <p className="text-xs opacity-80">{matchCount} matches completed</p>
-          </div>
+        <div className="p-4 max-w-lg mx-auto">
+          <h1 className="text-xl font-bold">Dashboard</h1>
+          <p className="text-xs opacity-80">{matchCount} matches completed</p>
         </div>
       </header>
 
@@ -250,6 +246,6 @@ export default function Dashboard() {
           </section>
         </div>
       </main>
-    </div>
+    </MainLayout>
   );
 }

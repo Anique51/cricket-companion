@@ -1,30 +1,24 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import { MainLayout } from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import type { Team, Player } from '@/types/cricket';
 import { toast } from 'sonner';
-import { ChevronLeft, Plus, Users, Trash2 } from 'lucide-react';
+import { Plus, Users, ChevronRight } from 'lucide-react';
 
 export default function TeamsPlayers() {
   const navigate = useNavigate();
   const [teams, setTeams] = useState<Team[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedTeamId, setSelectedTeamId] = useState<string>('all');
   
   // New team form
   const [showNewTeam, setShowNewTeam] = useState(false);
   const [newTeamName, setNewTeamName] = useState('');
   const [newTeamShortName, setNewTeamShortName] = useState('');
-  
-  // New player form
-  const [showNewPlayer, setShowNewPlayer] = useState(false);
-  const [newPlayerName, setNewPlayerName] = useState('');
-  const [newPlayerTeamId, setNewPlayerTeamId] = useState('');
 
   useEffect(() => {
     loadData();
@@ -40,10 +34,6 @@ export default function TeamsPlayers() {
     if (playersRes.data) setPlayers(playersRes.data);
     setLoading(false);
   };
-
-  const filteredPlayers = selectedTeamId === 'all' 
-    ? players 
-    : players.filter(p => p.team_id === selectedTeamId);
 
   const addTeam = async () => {
     if (!newTeamName.trim()) return;
@@ -64,198 +54,91 @@ export default function TeamsPlayers() {
     loadData();
   };
 
-  const addPlayer = async () => {
-    if (!newPlayerName.trim() || !newPlayerTeamId) return;
-    
-    const { error } = await supabase
-      .from('players')
-      .insert({ name: newPlayerName.trim(), team_id: newPlayerTeamId });
-    
-    if (error) {
-      toast.error('Failed to add player');
-      return;
-    }
-    
-    toast.success('Player added!');
-    setNewPlayerName('');
-    setNewPlayerTeamId('');
-    setShowNewPlayer(false);
-    loadData();
-  };
-
-  const deletePlayer = async (playerId: string) => {
-    const { error } = await supabase.from('players').delete().eq('id', playerId);
-    
-    if (error) {
-      toast.error('Failed to delete player');
-      return;
-    }
-    
-    toast.success('Player deleted');
-    loadData();
-  };
-
-  const getTeamName = (teamId: string) => {
-    return teams.find(t => t.id === teamId)?.name || 'Unknown';
+  const getPlayerCount = (teamId: string) => {
+    return players.filter(p => p.team_id === teamId).length;
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-muted-foreground">Loading...</div>
-      </div>
+      <MainLayout>
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-muted-foreground">Loading...</div>
+        </div>
+      </MainLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background safe-top safe-bottom">
-      {/* Header */}
-      <header className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b border-border">
-        <div className="flex items-center justify-between p-4">
-          <div className="flex items-center gap-3">
-            <button onClick={() => navigate('/')} className="p-2 -ml-2">
-              <ChevronLeft className="w-6 h-6" />
-            </button>
-            <h1 className="text-xl font-bold">Teams & Players</h1>
-          </div>
+    <MainLayout>
+      <header className="sticky top-0 z-10 bg-card/95 backdrop-blur border-b border-border">
+        <div className="flex items-center justify-between p-4 max-w-lg mx-auto">
+          <h1 className="text-xl font-bold">Teams & Players</h1>
+          <Dialog open={showNewTeam} onOpenChange={setShowNewTeam}>
+            <DialogTrigger asChild>
+              <Button size="sm">
+                <Plus className="w-4 h-4 mr-1" /> Add Team
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Add New Team</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 pt-4">
+                <div>
+                  <label className="text-sm text-muted-foreground mb-1 block">Team Name</label>
+                  <Input 
+                    value={newTeamName}
+                    onChange={(e) => setNewTeamName(e.target.value)}
+                    placeholder="e.g., Thunder Kings"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground mb-1 block">Short Name (optional)</label>
+                  <Input 
+                    value={newTeamShortName}
+                    onChange={(e) => setNewTeamShortName(e.target.value)}
+                    placeholder="e.g., TK"
+                    maxLength={4}
+                  />
+                </div>
+                <Button onClick={addTeam} className="w-full">Add Team</Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </header>
 
-      <main className="p-4 max-w-lg mx-auto space-y-6">
-        {/* Teams Section */}
-        <section>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-bold text-lg">Teams</h2>
-            <Dialog open={showNewTeam} onOpenChange={setShowNewTeam}>
-              <DialogTrigger asChild>
-                <Button size="sm" variant="outline">
-                  <Plus className="w-4 h-4 mr-1" /> Add Team
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-sm">
-                <DialogHeader>
-                  <DialogTitle>Add New Team</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4 pt-4">
-                  <div>
-                    <label className="text-sm text-muted-foreground mb-1 block">Team Name</label>
-                    <Input 
-                      value={newTeamName}
-                      onChange={(e) => setNewTeamName(e.target.value)}
-                      placeholder="e.g., Thunder Kings"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm text-muted-foreground mb-1 block">Short Name (optional)</label>
-                    <Input 
-                      value={newTeamShortName}
-                      onChange={(e) => setNewTeamShortName(e.target.value)}
-                      placeholder="e.g., TK"
-                      maxLength={4}
-                    />
-                  </div>
-                  <Button onClick={addTeam} className="w-full">Add Team</Button>
-                </div>
-              </DialogContent>
-            </Dialog>
+      <main className="p-4 max-w-lg mx-auto space-y-3">
+        {teams.length === 0 ? (
+          <div className="text-center py-12">
+            <Users className="w-12 h-12 mx-auto text-muted-foreground/50 mb-3" />
+            <p className="text-muted-foreground">No teams yet</p>
+            <p className="text-sm text-muted-foreground">Create your first team to get started</p>
           </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            {teams.map(team => (
-              <div key={team.id} className="card-player">
-                <div className="flex items-center gap-2">
-                  <Users className="w-4 h-4 text-muted-foreground" />
-                  <span className="font-medium">{team.name}</span>
+        ) : (
+          teams.map(team => (
+            <button
+              key={team.id}
+              onClick={() => navigate(`/team/${team.id}`)}
+              className="card-score w-full text-left hover:border-primary transition-colors flex items-center justify-between"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+                  <Users className="w-6 h-6 text-primary" />
                 </div>
-                {team.short_name && (
-                  <span className="text-xs text-muted-foreground mt-1 block">{team.short_name}</span>
-                )}
-                <span className="text-xs text-muted-foreground">
-                  {players.filter(p => p.team_id === team.id).length} players
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* Players Section */}
-        <section>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-bold text-lg">Players</h2>
-            <Dialog open={showNewPlayer} onOpenChange={setShowNewPlayer}>
-              <DialogTrigger asChild>
-                <Button size="sm" variant="outline">
-                  <Plus className="w-4 h-4 mr-1" /> Add Player
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-sm">
-                <DialogHeader>
-                  <DialogTitle>Add New Player</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4 pt-4">
-                  <div>
-                    <label className="text-sm text-muted-foreground mb-1 block">Player Name</label>
-                    <Input 
-                      value={newPlayerName}
-                      onChange={(e) => setNewPlayerName(e.target.value)}
-                      placeholder="e.g., John Smith"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm text-muted-foreground mb-1 block">Team</label>
-                    <Select value={newPlayerTeamId} onValueChange={setNewPlayerTeamId}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select team" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {teams.map(team => (
-                          <SelectItem key={team.id} value={team.id}>{team.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Button onClick={addPlayer} className="w-full">Add Player</Button>
-                </div>
-              </DialogContent>
-            </Dialog>
-          </div>
-
-          {/* Filter */}
-          <Select value={selectedTeamId} onValueChange={setSelectedTeamId}>
-            <SelectTrigger className="mb-4">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Teams</SelectItem>
-              {teams.map(team => (
-                <SelectItem key={team.id} value={team.id}>{team.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {/* Player List */}
-          <div className="space-y-2">
-            {filteredPlayers.map(player => (
-              <div key={player.id} className="card-player flex items-center justify-between">
                 <div>
-                  <span className="font-medium">{player.name}</span>
-                  <span className="text-xs text-muted-foreground block">{getTeamName(player.team_id)}</span>
+                  <h3 className="font-bold text-lg">{team.name}</h3>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    {team.short_name && <span className="bg-muted px-2 py-0.5 rounded text-xs">{team.short_name}</span>}
+                    <span>{getPlayerCount(team.id)} players</span>
+                  </div>
                 </div>
-                <button 
-                  onClick={() => deletePlayer(player.id)}
-                  className="p-2 text-muted-foreground hover:text-destructive transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
               </div>
-            ))}
-
-            {filteredPlayers.length === 0 && (
-              <p className="text-center text-muted-foreground py-8">No players found</p>
-            )}
-          </div>
-        </section>
+              <ChevronRight className="w-5 h-5 text-muted-foreground" />
+            </button>
+          ))
+        )}
       </main>
-    </div>
+    </MainLayout>
   );
 }

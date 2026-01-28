@@ -18,6 +18,7 @@ interface UseCricketMatchReturn {
   legalBallCount: number;
   isProcessingDelivery: boolean;
   isLoading: boolean;
+  dismissedBatsmanIds: string[];
   
   // Actions
   recordDelivery: (action: ScoringAction) => Promise<void>;
@@ -25,6 +26,8 @@ interface UseCricketMatchReturn {
   selectNewBowler: (playerId: string) => Promise<void>;
   startSecondInnings: (battingTeamId: string, batsmanId: string, bowlerId: string) => Promise<void>;
   loadMatch: (matchId: string) => Promise<void>;
+  endInningsManually: () => Promise<void>;
+  endMatchManually: () => Promise<void>;
   
   // Modals
   showBatsmanModal: boolean;
@@ -52,6 +55,7 @@ export function useCricketMatch(): UseCricketMatchReturn {
   const [legalBallCount, setLegalBallCount] = useState(0);
   const [isProcessingDelivery, setIsProcessingDelivery] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [dismissedBatsmanIds, setDismissedBatsmanIds] = useState<string[]>([]);
   
   // Modals
   const [showBatsmanModal, setShowBatsmanModal] = useState(false);
@@ -59,6 +63,19 @@ export function useCricketMatch(): UseCricketMatchReturn {
   const [showInningsSummary, setShowInningsSummary] = useState(false);
   const [showMatchResult, setShowMatchResult] = useState(false);
   const [pendingBowlerChange, setPendingBowlerChange] = useState(false);
+
+  // Load dismissed batsmen for current innings
+  const loadDismissedBatsmen = useCallback(async (inningsId: string) => {
+    const { data } = await supabase
+      .from('batsman_innings_stats')
+      .select('batsman_id')
+      .eq('innings_id', inningsId)
+      .eq('is_out', true);
+    
+    if (data) {
+      setDismissedBatsmanIds(data.map(d => d.batsman_id));
+    }
+  }, []);
 
   // Load current over deliveries
   const loadDeliveries = useCallback(async (overId: string) => {
@@ -104,6 +121,7 @@ export function useCricketMatch(): UseCricketMatchReturn {
       
       if (inningsData) {
         setCurrentInnings(inningsData);
+        await loadDismissedBatsmen(inningsData.id);
 
         // Load current over
         const { data: overData } = await supabase
@@ -167,7 +185,7 @@ export function useCricketMatch(): UseCricketMatchReturn {
     } finally {
       setIsLoading(false);
     }
-  }, [loadDeliveries]);
+  }, [loadDeliveries, loadDismissedBatsmen]);
 
   // Check if innings should end (all wickets or overs complete)
   const checkInningsEnd = useCallback(async (innings: Innings, totalOvers: number) => {
@@ -278,6 +296,120 @@ export function useCricketMatch(): UseCricketMatchReturn {
     }
     return false;
   }, []);
+
+  // End innings manually
+  const endInningsManually = useCallback(async () => {
+    if (!currentInnings || !match) return;
+    
+    await supabase
+      .from('innings')
+      .update({ is_completed: true })
+      .eq('id', currentInnings.id);
+    
+    if (currentInnings.innings_number === 1) {
+      setShowInningsSummary(true);
+    } else {
+      // Second innings - determine result
+      const { data: firstInnings } = await supabase
+        .from('innings')
+        .select('total_runs')
+        .eq('match_id', match.id)
+        .eq('innings_number', 1)
+        .single();
+      
+      if (firstInnings) {
+        const target = firstInnings.total_runs + 1;
+        let winnerId: string | null = null;
+        let resultDesc = '';
+        
+        if (currentInnings.total_runs >= target) {
+          winnerId = currentInnings.batting_team_id;
+          const wicketsRemaining = 10 - currentInnings.total_wickets;
+          resultDesc = `Won by ${wicketsRemaining} wicket${wicketsRemaining !== 1 ? 's' : ''}`;
+        } else {
+          winnerId = currentInnings.bowling_team_id;
+          const runsDiff = target - currentInnings.total_runs - 1;
+          resultDesc = `Won by ${runsDiff} run${runsDiff !== 1 ? 's' : ''}`;
+        }
+        
+        await supabase
+          .from('matches')
+          .update({ 
+            status: 'completed', 
+            winner_team_id: winnerId,
+            result_description: resultDesc,
+            completed_at: new Date().toISOString()
+          })
+          .eq('id', match.id);
+        
+        setMatch(prev => prev ? { 
+          ...prev, 
+          status: 'completed', 
+          winner_team_id: winnerId,
+          result_description: resultDesc 
+        } : null);
+        
+        setShowMatchResult(true);
+      }
+    }
+  }, [currentInnings, match]);
+
+  // End match manually
+  const endMatchManually = useCallback(async () => {
+    if (!match || !currentInnings) return;
+    
+    // Mark innings as complete
+    await supabase
+      .from('innings')
+      .update({ is_completed: true })
+      .eq('id', currentInnings.id);
+    
+    // Mark match as completed without a winner (or determine based on current scores)
+    const { data: allInnings } = await supabase
+      .from('innings')
+      .select('*')
+      .eq('match_id', match.id)
+      .order('innings_number');
+    
+    let resultDesc = 'Match ended';
+    let winnerId: string | null = null;
+    
+    if (allInnings && allInnings.length === 2) {
+      const inn1 = allInnings[0];
+      const inn2 = allInnings[1];
+      
+      if (inn2.total_runs > inn1.total_runs) {
+        winnerId = inn2.batting_team_id;
+        const wicketsRemaining = 10 - inn2.total_wickets;
+        resultDesc = `Won by ${wicketsRemaining} wicket${wicketsRemaining !== 1 ? 's' : ''}`;
+      } else if (inn1.total_runs > inn2.total_runs) {
+        winnerId = inn1.batting_team_id;
+        const runsDiff = inn1.total_runs - inn2.total_runs;
+        resultDesc = `Won by ${runsDiff} run${runsDiff !== 1 ? 's' : ''}`;
+      } else {
+        resultDesc = 'Match tied';
+      }
+    }
+    
+    await supabase
+      .from('matches')
+      .update({ 
+        status: 'completed', 
+        winner_team_id: winnerId,
+        result_description: resultDesc,
+        completed_at: new Date().toISOString()
+      })
+      .eq('id', match.id);
+    
+    setMatch(prev => prev ? { 
+      ...prev, 
+      status: 'completed', 
+      winner_team_id: winnerId,
+      result_description: resultDesc 
+    } : null);
+    
+    setShowMatchResult(true);
+  }, [match, currentInnings]);
 
   // Record a delivery - ATOMIC OPERATION
   const recordDelivery = useCallback(async (action: ScoringAction) => {
@@ -429,6 +561,11 @@ export function useCricketMatch(): UseCricketMatchReturn {
         no_balls: newNoBalls
       } : null);
 
+      // Update dismissed batsmen if wicket
+      if (isWicket && currentBatsman) {
+        setDismissedBatsmanIds(prev => [...prev, currentBatsman.id]);
+      }
+
       // Check for chasing win first
       const updatedInnings = {
         ...currentInnings,
@@ -459,6 +596,8 @@ export function useCricketMatch(): UseCricketMatchReturn {
               setPendingBowlerChange(true);
             }
             setShowBatsmanModal(true);
+          } else {
+            setIsProcessingDelivery(false);
           }
         } else {
           // Just need new batsman
@@ -468,18 +607,32 @@ export function useCricketMatch(): UseCricketMatchReturn {
           setShowBatsmanModal(true);
         }
       } else if (newLegalCount >= 6) {
-        // Over complete - need new bowler
-        await completeOver(newTotalRuns);
-        setShowBowlerModal(true);
+        // Over complete - check if it's the last over
+        const newOversCompleted = Math.floor(currentInnings.total_overs_completed) + 1;
+        
+        if (newOversCompleted >= match.total_overs) {
+          // Last over complete - end innings
+          await completeOver(newTotalRuns);
+          await checkInningsEnd({
+            ...currentInnings,
+            total_runs: newTotalRuns,
+            total_wickets: newTotalWickets,
+            total_overs_completed: newOversCompleted
+          }, match.total_overs);
+          setIsProcessingDelivery(false);
+        } else {
+          // More overs to bowl - need new bowler
+          await completeOver(newTotalRuns);
+          setShowBowlerModal(true);
+        }
+      } else {
+        setIsProcessingDelivery(false);
       }
 
     } catch (error) {
       console.error('Error recording delivery:', error);
       toast.error('Failed to record delivery');
-    } finally {
-      if (!showBatsmanModal && !showBowlerModal) {
-        setIsProcessingDelivery(false);
-      }
+      setIsProcessingDelivery(false);
     }
   }, [
     isProcessingDelivery, currentOver, currentInnings, currentBatsman, 
@@ -568,7 +721,19 @@ export function useCricketMatch(): UseCricketMatchReturn {
       if (pendingBowlerChange) {
         await completeOver();
         setPendingBowlerChange(false);
-        setShowBowlerModal(true);
+        
+        // Check if this was the last over
+        const newOversCompleted = Math.floor(currentInnings.total_overs_completed) + 1;
+        if (match && newOversCompleted >= match.total_overs) {
+          // Last over - end innings, don't ask for bowler
+          await checkInningsEnd({
+            ...currentInnings,
+            total_overs_completed: newOversCompleted
+          }, match.total_overs);
+          setIsProcessingDelivery(false);
+        } else {
+          setShowBowlerModal(true);
+        }
       } else {
         setIsProcessingDelivery(false);
       }
@@ -577,7 +742,7 @@ export function useCricketMatch(): UseCricketMatchReturn {
       console.error('Error selecting batsman:', error);
       toast.error('Failed to select batsman');
     }
-  }, [currentInnings, pendingBowlerChange, completeOver]);
+  }, [currentInnings, pendingBowlerChange, completeOver, match, checkInningsEnd]);
 
   // Select new bowler for new over
   const selectNewBowler = useCallback(async (playerId: string) => {
@@ -751,6 +916,7 @@ export function useCricketMatch(): UseCricketMatchReturn {
       setBowlerStats(newBowlerStats);
       setDeliveries([]);
       setLegalBallCount(0);
+      setDismissedBatsmanIds([]);
       setShowInningsSummary(false);
 
     } catch (error) {
@@ -771,11 +937,14 @@ export function useCricketMatch(): UseCricketMatchReturn {
     legalBallCount,
     isProcessingDelivery,
     isLoading,
+    dismissedBatsmanIds,
     recordDelivery,
     selectNewBatsman,
     selectNewBowler,
     startSecondInnings,
     loadMatch,
+    endInningsManually,
+    endMatchManually,
     showBatsmanModal,
     showBowlerModal,
     showInningsSummary,

@@ -1,11 +1,13 @@
 import { cn } from '@/lib/utils';
-import type { Innings, Team } from '@/types/cricket';
+import type { Innings, Team, Over } from '@/types/cricket';
 
 interface ScoreCardProps {
   innings: Innings | null;
   battingTeam: Team | null;
   totalOvers: number;
   target?: number;
+  currentOver?: Over | null;
+  legalBallCount?: number;
   className?: string;
 }
 
@@ -14,17 +16,29 @@ export function ScoreCard({
   battingTeam, 
   totalOvers, 
   target,
+  currentOver,
+  legalBallCount = 0,
   className 
 }: ScoreCardProps) {
   const runs = innings?.total_runs ?? 0;
   const wickets = innings?.total_wickets ?? 0;
-  const overs = innings?.total_overs_completed ?? 0;
+  const completedOvers = innings?.total_overs_completed ?? 0;
+  
+  // Calculate current overs including balls in current over
+  // Display as X.Y where Y is balls bowled in current over
+  const displayOvers = completedOvers + (legalBallCount / 10);
+  const oversText = legalBallCount > 0 
+    ? `${Math.floor(completedOvers)}.${legalBallCount}` 
+    : completedOvers.toFixed(1);
+  
+  // Calculate actual overs for rate calculations
+  const actualOvers = completedOvers + (legalBallCount / 6);
   
   // Calculate current run rate
-  const runRate = overs > 0 ? (runs / overs).toFixed(2) : '0.00';
+  const runRate = actualOvers > 0 ? (runs / actualOvers).toFixed(2) : '0.00';
   
   // Calculate required run rate for chase
-  const oversRemaining = totalOvers - overs;
+  const oversRemaining = totalOvers - completedOvers - (legalBallCount / 6);
   const runsRequired = target ? target - runs : 0;
   const requiredRate = target && oversRemaining > 0 
     ? (runsRequired / oversRemaining).toFixed(2) 
@@ -49,7 +63,7 @@ export function ScoreCard({
           <span className="text-4xl sm:text-5xl text-muted-foreground">/{wickets}</span>
         </div>
         <div className="text-xl sm:text-2xl font-semibold text-muted-foreground mt-1">
-          ({overs.toFixed(1)} / {totalOvers} ov)
+          ({oversText} / {totalOvers} ov)
         </div>
       </div>
 
