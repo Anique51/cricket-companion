@@ -4,6 +4,8 @@ import { supabase } from '@/integrations/supabase/client';
 import type { Player } from '@/types/cricket';
 import { cn } from '@/lib/utils';
 
+const EMPTY_EXCLUDE: string[] = [];
+
 interface PlayerSelectModalProps {
   open: boolean;
   onSelect: (playerId: string) => void;
@@ -18,7 +20,7 @@ export function PlayerSelectModal({
   onSelect, 
   title, 
   teamId, 
-  excludePlayerIds = [],
+  excludePlayerIds = EMPTY_EXCLUDE,
   type
 }: PlayerSelectModalProps) {
   const [players, setPlayers] = useState<Player[]>([]);
