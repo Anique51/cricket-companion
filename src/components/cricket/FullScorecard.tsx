@@ -108,7 +108,7 @@ export function FullScorecard({ open, onClose, matchId, team1, team2 }: FullScor
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg mx-auto max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="max-w-lg mx-auto max-h-[90vh] overflow-hidden flex flex-col [&>button]:hidden">
         <DialogHeader className="flex-shrink-0">
           <div className="flex items-center justify-between">
             <DialogTitle>Full Scorecard</DialogTitle>

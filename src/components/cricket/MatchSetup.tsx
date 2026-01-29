@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import type { Team, Player } from '@/types/cricket';
 import { toast } from 'sonner';
 import { ChevronLeft } from 'lucide-react';
@@ -210,16 +211,15 @@ export function MatchSetup() {
 
             <div>
               <label className="text-sm text-muted-foreground mb-1 block">Overs</label>
-              <Select value={totalOvers} onValueChange={setTotalOvers}>
-                <SelectTrigger className="h-12">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {[5, 10, 15, 20, 25, 30, 40, 50].map(o => (
-                    <SelectItem key={o} value={o.toString()}>{o} overs</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Input
+                type="number"
+                min="1"
+                max="50"
+                value={totalOvers}
+                onChange={(e) => setTotalOvers(e.target.value)}
+                placeholder="Enter number of overs"
+                className="h-12"
+              />
             </div>
           </div>
         </div>
