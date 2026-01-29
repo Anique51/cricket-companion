@@ -63,6 +63,7 @@ export function useCricketMatch(): UseCricketMatchReturn {
   const [showInningsSummary, setShowInningsSummary] = useState(false);
   const [showMatchResult, setShowMatchResult] = useState(false);
   const [pendingBowlerChange, setPendingBowlerChange] = useState(false);
+  const [bowlerModalTriggered, setBowlerModalTriggered] = useState(false);
 
   // Load dismissed batsmen for current innings
   const loadDismissedBatsmen = useCallback(async (inningsId: string) => {
@@ -606,7 +607,7 @@ export function useCricketMatch(): UseCricketMatchReturn {
           }
           setShowBatsmanModal(true);
         }
-      } else if (newLegalCount >= 6) {
+      } else if (newLegalCount >= 6 && !bowlerModalTriggered) {
         // Over complete - check if it's the last over
         const newOversCompleted = Math.floor(currentInnings.total_overs_completed) + 1;
         
@@ -623,6 +624,7 @@ export function useCricketMatch(): UseCricketMatchReturn {
         } else {
           // More overs to bowl - need new bowler
           await completeOver(newTotalRuns);
+          setBowlerModalTriggered(true);
           setShowBowlerModal(true);
         }
       } else {
@@ -817,6 +819,7 @@ export function useCricketMatch(): UseCricketMatchReturn {
       setDeliveries([]);
       setLegalBallCount(0);
       setShowBowlerModal(false);
+      setBowlerModalTriggered(false);
       setIsProcessingDelivery(false);
 
     } catch (error) {

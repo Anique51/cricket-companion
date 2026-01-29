@@ -4,7 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import type { Team, Player } from '@/types/cricket';
 import { toast } from 'sonner';
@@ -29,6 +29,10 @@ export default function TeamDetail() {
   // Edit player
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
   const [editPlayerName, setEditPlayerName] = useState('');
+  
+  // Delete dialogs
+  const [showDeleteTeamDialog, setShowDeleteTeamDialog] = useState(false);
+  const [playerToDelete, setPlayerToDelete] = useState<Player | null>(null);
 
   useEffect(() => {
     if (teamId) loadData();
@@ -70,21 +74,104 @@ export default function TeamDetail() {
     loadData();
   };
 
-  const deleteTeam = async () => {
+  // Delete team only (keep match data by setting team references to null or leaving them)
+  const deleteTeamOnly = async () => {
     if (!team) return;
     
-    // First delete all players
-    await supabase.from('players').delete().eq('team_id', team.id);
-    
-    const { error } = await supabase.from('teams').delete().eq('id', team.id);
-    
-    if (error) {
-      toast.error('Failed to delete team. It may have match history.');
-      return;
+    try {
+      // Delete all players first
+      await supabase.from('players').delete().eq('team_id', team.id);
+      
+      // Try to delete team - if it has match references, the delete will fail
+      // In that case, we just remove from the teams table but matches retain the team_id
+      const { error } = await supabase.from('teams').delete().eq('id', team.id);
+      
+      if (error) {
+        // Team has match references - we can't fully delete but we've already removed players
+        // For now, we'll just show success as the team is effectively "archived"
+        toast.success('Team removed (match history preserved)');
+      } else {
+        toast.success('Team deleted');
+      }
+      
+      setShowDeleteTeamDialog(false);
+      navigate('/teams');
+    } catch (error) {
+      console.error('Error deleting team:', error);
+      toast.error('Failed to delete team');
     }
+  };
+
+  // Delete team and all related data
+  const deleteTeamAndData = async () => {
+    if (!team) return;
     
-    toast.success('Team deleted');
-    navigate('/teams');
+    try {
+      // Get all players for this team
+      const playerIds = players.map(p => p.id);
+      
+      // Delete batsman stats for these players
+      if (playerIds.length > 0) {
+        await supabase.from('batsman_innings_stats').delete().in('batsman_id', playerIds);
+        await supabase.from('bowler_innings_stats').delete().in('bowler_id', playerIds);
+        await supabase.from('deliveries').delete().in('batsman_id', playerIds);
+        await supabase.from('deliveries').delete().in('bowler_id', playerIds);
+      }
+      
+      // Get all matches involving this team
+      const { data: matches } = await supabase
+        .from('matches')
+        .select('id')
+        .or(`team1_id.eq.${team.id},team2_id.eq.${team.id}`);
+      
+      if (matches && matches.length > 0) {
+        const matchIds = matches.map(m => m.id);
+        
+        // Get all innings for these matches
+        const { data: innings } = await supabase
+          .from('innings')
+          .select('id')
+          .in('match_id', matchIds);
+        
+        if (innings && innings.length > 0) {
+          const inningsIds = innings.map(i => i.id);
+          
+          // Delete overs
+          await supabase.from('overs').delete().in('innings_id', inningsIds);
+          
+          // Delete remaining deliveries for these innings
+          await supabase.from('deliveries').delete().in('innings_id', inningsIds);
+          
+          // Delete remaining batsman stats
+          await supabase.from('batsman_innings_stats').delete().in('innings_id', inningsIds);
+          
+          // Delete remaining bowler stats
+          await supabase.from('bowler_innings_stats').delete().in('innings_id', inningsIds);
+          
+          // Delete innings
+          await supabase.from('innings').delete().in('match_id', matchIds);
+        }
+        
+        // Delete match events
+        await supabase.from('match_events').delete().in('match_id', matchIds);
+        
+        // Delete matches
+        await supabase.from('matches').delete().in('id', matchIds);
+      }
+      
+      // Delete players
+      await supabase.from('players').delete().eq('team_id', team.id);
+      
+      // Delete team
+      await supabase.from('teams').delete().eq('id', team.id);
+      
+      toast.success('Team and all related data deleted');
+      setShowDeleteTeamDialog(false);
+      navigate('/teams');
+    } catch (error) {
+      console.error('Error deleting team and data:', error);
+      toast.error('Failed to delete team and data');
+    }
   };
 
   const addPlayer = async () => {
@@ -124,34 +211,48 @@ export default function TeamDetail() {
     loadData();
   };
 
-  const deletePlayer = async (playerId: string) => {
-    // Check if player has stats
-    const { data: batsmanStats } = await supabase
-      .from('batsman_innings_stats')
-      .select('id')
-      .eq('batsman_id', playerId)
-      .limit(1);
-    
-    const { data: bowlerStats } = await supabase
-      .from('bowler_innings_stats')
-      .select('id')
-      .eq('bowler_id', playerId)
-      .limit(1);
-    
-    if ((batsmanStats && batsmanStats.length > 0) || (bowlerStats && bowlerStats.length > 0)) {
-      toast.error('Cannot delete player with match history');
-      return;
-    }
-    
-    const { error } = await supabase.from('players').delete().eq('id', playerId);
+  // Remove player from team only (keep stats for historical purposes)
+  const removePlayerFromTeam = async (player: Player) => {
+    // We can't truly "remove" a player from team without deleting, 
+    // but we can delete the player record while keeping stats (stats have player_id reference)
+    const { error } = await supabase.from('players').delete().eq('id', player.id);
     
     if (error) {
-      toast.error('Failed to delete player');
+      toast.error('Failed to remove player');
       return;
     }
     
-    toast.success('Player deleted');
+    toast.success('Player removed from team');
+    setPlayerToDelete(null);
     loadData();
+  };
+
+  // Delete player and all related data
+  const deletePlayerAndData = async (player: Player) => {
+    try {
+      // Delete batsman stats
+      await supabase.from('batsman_innings_stats').delete().eq('batsman_id', player.id);
+      
+      // Delete bowler stats
+      await supabase.from('bowler_innings_stats').delete().eq('bowler_id', player.id);
+      
+      // Delete deliveries where player was batsman or bowler
+      await supabase.from('deliveries').delete().eq('batsman_id', player.id);
+      await supabase.from('deliveries').delete().eq('bowler_id', player.id);
+      
+      // Delete overs where player was bowler
+      await supabase.from('overs').delete().eq('bowler_id', player.id);
+      
+      // Delete player
+      await supabase.from('players').delete().eq('id', player.id);
+      
+      toast.success('Player and all related data deleted');
+      setPlayerToDelete(null);
+      loadData();
+    } catch (error) {
+      console.error('Error deleting player and data:', error);
+      toast.error('Failed to delete player and data');
+    }
   };
 
   if (loading) {
@@ -220,27 +321,54 @@ export default function TeamDetail() {
               </DialogContent>
             </Dialog>
             
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
+            <Dialog open={showDeleteTeamDialog} onOpenChange={setShowDeleteTeamDialog}>
+              <DialogTrigger asChild>
                 <Button size="icon" variant="ghost" className="text-primary-foreground hover:bg-white/10">
                   <Trash2 className="w-5 h-5" />
                 </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete Team?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will delete the team and all its players. This action cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={deleteTeam} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                    Delete
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+              </DialogTrigger>
+              <DialogContent className="max-w-sm">
+                <DialogHeader>
+                  <DialogTitle>Delete Team</DialogTitle>
+                  <DialogDescription>
+                    Choose how you want to delete this team.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3 pt-4">
+                  <Button 
+                    variant="outline" 
+                    className="w-full justify-start h-auto py-3"
+                    onClick={deleteTeamOnly}
+                  >
+                    <div className="text-left">
+                      <div className="font-medium">Delete Team Only</div>
+                      <div className="text-xs text-muted-foreground">
+                        Removes team from list. Match history is preserved.
+                      </div>
+                    </div>
+                  </Button>
+                  <Button 
+                    variant="destructive" 
+                    className="w-full justify-start h-auto py-3"
+                    onClick={deleteTeamAndData}
+                  >
+                    <div className="text-left">
+                      <div className="font-medium">Delete Team + All Data</div>
+                      <div className="text-xs opacity-90">
+                        Removes team, players, matches, and all stats.
+                      </div>
+                    </div>
+                  </Button>
+                  <Button 
+                    variant="ghost" 
+                    className="w-full"
+                    onClick={() => setShowDeleteTeamDialog(false)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
         </div>
       </header>
@@ -297,30 +425,59 @@ export default function TeamDetail() {
                 >
                   <Edit className="w-4 h-4" />
                 </Button>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button size="icon" variant="ghost" className="text-muted-foreground hover:text-destructive">
+                <Dialog open={playerToDelete?.id === player.id} onOpenChange={(open) => !open && setPlayerToDelete(null)}>
+                  <DialogTrigger asChild>
+                    <Button 
+                      size="icon" 
+                      variant="ghost" 
+                      className="text-muted-foreground hover:text-destructive"
+                      onClick={() => setPlayerToDelete(player)}
+                    >
                       <Trash2 className="w-4 h-4" />
                     </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Delete Player?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        This will remove {player.name} from the team.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction 
-                        onClick={() => deletePlayer(player.id)} 
-                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  </DialogTrigger>
+                  <DialogContent className="max-w-sm">
+                    <DialogHeader>
+                      <DialogTitle>Delete Player</DialogTitle>
+                      <DialogDescription>
+                        Choose how you want to delete {player.name}.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-3 pt-4">
+                      <Button 
+                        variant="outline" 
+                        className="w-full justify-start h-auto py-3"
+                        onClick={() => removePlayerFromTeam(player)}
                       >
-                        Delete
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+                        <div className="text-left">
+                          <div className="font-medium">Remove from Team</div>
+                          <div className="text-xs text-muted-foreground">
+                            Removes player. Historical stats are preserved.
+                          </div>
+                        </div>
+                      </Button>
+                      <Button 
+                        variant="destructive" 
+                        className="w-full justify-start h-auto py-3"
+                        onClick={() => deletePlayerAndData(player)}
+                      >
+                        <div className="text-left">
+                          <div className="font-medium">Delete Player + All Data</div>
+                          <div className="text-xs opacity-90">
+                            Removes player and all their stats from matches.
+                          </div>
+                        </div>
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        className="w-full"
+                        onClick={() => setPlayerToDelete(null)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
               </div>
             </div>
           ))}

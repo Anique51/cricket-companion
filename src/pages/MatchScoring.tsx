@@ -12,6 +12,7 @@ import { InningsSummaryModal } from '@/components/cricket/InningsSummaryModal';
 import { MatchResultModal } from '@/components/cricket/MatchResultModal';
 import { SecondInningsSetup } from '@/components/cricket/SecondInningsSetup';
 import { FullScorecard } from '@/components/cricket/FullScorecard';
+import { CompletedMatchScorecard } from '@/components/cricket/CompletedMatchScorecard';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
@@ -172,6 +173,43 @@ export default function MatchScoring() {
 
   const matchCompleted = match?.status === 'completed';
 
+  // For completed matches, show scorecard directly
+  if (matchCompleted && match) {
+    return (
+      <MainLayout hideNav>
+        {/* Header */}
+        <header className="sticky top-0 z-10 bg-field-gradient text-primary-foreground">
+          <div className="flex items-center justify-between p-4 max-w-lg mx-auto">
+            <div className="flex items-center gap-3">
+              <button onClick={() => navigate('/')} className="p-2 -ml-2 hover:bg-white/10 rounded-full transition-colors">
+                <ChevronLeft className="w-6 h-6" />
+              </button>
+              <div>
+                <h1 className="font-bold">
+                  {team1?.short_name || team1?.name} vs {team2?.short_name || team2?.name}
+                </h1>
+                <p className="text-xs opacity-80">
+                  {match?.total_overs} overs match • Completed
+                </p>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main className="flex-1 p-4 space-y-4 max-w-lg mx-auto w-full">
+          {/* Match Result */}
+          <div className="card-score text-center py-6">
+            <p className="text-sm text-muted-foreground mb-1">Result</p>
+            <p className="text-xl font-bold text-primary">{match.result_description}</p>
+          </div>
+
+          {/* Inline Full Scorecard */}
+          <CompletedMatchScorecard matchId={matchId || ''} team1={team1} team2={team2} />
+        </main>
+      </MainLayout>
+    );
+  }
+
   return (
     <MainLayout hideNav>
       {/* Header */}
@@ -202,7 +240,7 @@ export default function MatchScoring() {
               <DropdownMenuItem onClick={() => setShowScorecard(true)}>
                 <FileText className="w-4 h-4 mr-2" /> View Scorecard
               </DropdownMenuItem>
-              {!matchCompleted && currentInnings && (
+              {currentInnings && (
                 <>
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
@@ -270,23 +308,11 @@ export default function MatchScoring() {
         <OverTimeline deliveries={deliveries} legalBallCount={legalBallCount} />
 
         {/* Scoring Buttons */}
-        {!matchCompleted && (
-          <ScoringButtons 
-            onScore={recordDelivery}
-            isProcessing={isProcessingDelivery}
-            disabled={matchCompleted || !currentBatsman || !currentBowler}
-          />
-        )}
-
-        {matchCompleted && (
-          <div className="text-center py-8">
-            <p className="text-lg font-medium text-muted-foreground">Match Completed</p>
-            <p className="text-xl font-bold text-foreground mt-1">{match?.result_description}</p>
-            <Button onClick={() => setShowScorecard(true)} variant="outline" className="mt-4">
-              <FileText className="w-4 h-4 mr-2" /> View Full Scorecard
-            </Button>
-          </div>
-        )}
+        <ScoringButtons 
+          onScore={recordDelivery}
+          isProcessing={isProcessingDelivery}
+          disabled={!currentBatsman || !currentBowler}
+        />
       </main>
 
       {/* Modals */}
