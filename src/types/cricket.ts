@@ -136,3 +136,35 @@ export interface TeamStats {
   matches_won: number;
   win_percentage: number;
 }
+
+// Match-scoped stats for completed match scorecards
+export interface MatchBattingStats {
+  id: string;
+  match_id: string;
+  innings_number: number;
+  team_id: string;
+  player_id: string;
+  runs: number;
+  balls: number;
+  fours: number;
+  sixes: number;
+  is_out: boolean;
+  dismissal_type: string | null;
+  batting_order: number;
+  created_at: string;
+}
+
+export interface MatchBowlingStats {
+  id: string;
+  match_id: string;
+  innings_number: number;
+  team_id: string;
+  player_id: string;
+  overs: number;
+  balls: number;
+  runs_conceded: number;
+  wickets: number;
+  wides: number;
+  no_balls: number;
+  created_at: string;
+}

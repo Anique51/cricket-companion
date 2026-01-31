@@ -6,9 +6,10 @@ interface BowlerCardProps {
   stats: BowlerInningsStats | null;
   currentOverBalls?: number;
   className?: string;
+  onSelectBowler?: () => void;
 }
 
-export function BowlerCard({ bowler, stats, currentOverBalls = 0, className }: BowlerCardProps) {
+export function BowlerCard({ bowler, stats, currentOverBalls = 0, className, onSelectBowler }: BowlerCardProps) {
   const completedOvers = stats?.overs_bowled ?? 0;
   const runs = stats?.runs_conceded ?? 0;
   const wickets = stats?.wickets_taken ?? 0;
@@ -24,6 +25,8 @@ export function BowlerCard({ bowler, stats, currentOverBalls = 0, className }: B
   const actualOvers = completedOvers + (currentOverBalls / 6);
   const economy = actualOvers > 0 ? (runs / actualOvers).toFixed(2) : '0.00';
 
+  const noBowlerSelected = !bowler;
+
   return (
     <div className={cn("card-player", className)}>
       <div className="flex items-center justify-between mb-2">
@@ -35,9 +38,18 @@ export function BowlerCard({ bowler, stats, currentOverBalls = 0, className }: B
       
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="font-bold text-foreground text-lg">
-            {bowler?.name || 'Select Bowler'}
-          </h3>
+          {noBowlerSelected ? (
+            <button 
+              onClick={onSelectBowler}
+              className="font-bold text-primary text-lg hover:underline cursor-pointer bg-transparent border-none p-0"
+            >
+              Select Bowler
+            </button>
+          ) : (
+            <h3 className="font-bold text-foreground text-lg">
+              {bowler.name}
+            </h3>
+          )}
           <div className="flex gap-3 text-xs text-muted-foreground mt-1">
             <span>{oversDisplay} ov</span>
             <span>Econ: {economy}</span>

@@ -53,7 +53,7 @@ export default function Settings() {
 
         {/* Version */}
         <p className="text-center text-xs text-muted-foreground pt-4">
-          Version 1.1.0
+          Version 1.2.0
         </p>
       </main>
     </MainLayout>
