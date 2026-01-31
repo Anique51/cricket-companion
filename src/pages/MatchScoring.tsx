@@ -48,6 +48,7 @@ export default function MatchScoring() {
     setShowInningsSummary,
     endInningsManually,
     endMatchManually,
+    openBowlerModal,
     dismissedBatsmanIds
   } = useCricketMatch();
 
@@ -301,7 +302,12 @@ export default function MatchScoring() {
         {/* Player Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <BatsmanCard batsman={currentBatsman} stats={batsmanStats} />
-          <BowlerCard bowler={currentBowler} stats={bowlerStats} currentOverBalls={legalBallCount} />
+          <BowlerCard 
+            bowler={currentBowler} 
+            stats={bowlerStats} 
+            currentOverBalls={legalBallCount} 
+            onSelectBowler={openBowlerModal}
+          />
         </div>
 
         {/* Over Timeline */}

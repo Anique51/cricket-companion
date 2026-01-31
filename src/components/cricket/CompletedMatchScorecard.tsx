@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabase } from '@/integrations/supabase/client';
-import type { Team, Innings, Player, BatsmanInningsStats, BowlerInningsStats } from '@/types/cricket';
+import type { Team, Innings, Player } from '@/types/cricket';
 
 interface CompletedMatchScorecardProps {
   matchId: string;
@@ -9,14 +9,42 @@ interface CompletedMatchScorecardProps {
   team2: Team | null;
 }
 
+interface MatchBattingStat {
+  id: string;
+  match_id: string;
+  innings_number: number;
+  team_id: string;
+  player_id: string;
+  runs: number;
+  balls: number;
+  fours: number;
+  sixes: number;
+  is_out: boolean;
+  dismissal_type: string | null;
+  batting_order: number;
+}
+
+interface MatchBowlingStat {
+  id: string;
+  match_id: string;
+  innings_number: number;
+  team_id: string;
+  player_id: string;
+  overs: number;
+  runs_conceded: number;
+  wickets: number;
+  wides: number;
+  no_balls: number;
+}
+
 interface BatsmanScoreRow {
   player: Player;
-  stats: BatsmanInningsStats;
+  stats: MatchBattingStat;
 }
 
 interface BowlerScoreRow {
   player: Player;
-  stats: BowlerInningsStats;
+  stats: MatchBowlingStat;
 }
 
 interface InningsData {
@@ -53,35 +81,93 @@ export function CompletedMatchScorecard({ matchId, team1, team2 }: CompletedMatc
       const { data: allPlayers } = await supabase.from('players').select('*');
       const playersMap = new Map(allPlayers?.map(p => [p.id, p]) || []);
 
+      // Try to load from match-scoped stats tables first
+      const { data: matchBattingStats } = await supabase
+        .from('match_batting_stats')
+        .select('*')
+        .eq('match_id', matchId)
+        .order('batting_order');
+
+      const { data: matchBowlingStats } = await supabase
+        .from('match_bowling_stats')
+        .select('*')
+        .eq('match_id', matchId)
+        .order('overs', { ascending: false });
+
+      const hasMatchScopedData = (matchBattingStats && matchBattingStats.length > 0) || 
+                                  (matchBowlingStats && matchBowlingStats.length > 0);
+
       const inningsResults: InningsData[] = [];
 
       for (const inning of innings) {
-        // Load batsman stats
-        const { data: batsmanStats } = await supabase
-          .from('batsman_innings_stats')
-          .select('*')
-          .eq('innings_id', inning.id)
-          .order('batting_order');
-
-        // Load bowler stats
-        const { data: bowlerStats } = await supabase
-          .from('bowler_innings_stats')
-          .select('*')
-          .eq('innings_id', inning.id)
-          .order('overs_bowled', { ascending: false });
-
         const battingTeam = inning.batting_team_id === team1?.id ? team1 : team2;
         const bowlingTeam = inning.bowling_team_id === team1?.id ? team1 : team2;
 
-        const batsmen: BatsmanScoreRow[] = (batsmanStats || []).map(stats => ({
-          player: playersMap.get(stats.batsman_id) as Player,
-          stats
-        })).filter(b => b.player);
+        let batsmen: BatsmanScoreRow[] = [];
+        let bowlers: BowlerScoreRow[] = [];
 
-        const bowlers: BowlerScoreRow[] = (bowlerStats || []).map(stats => ({
-          player: playersMap.get(stats.bowler_id) as Player,
-          stats
-        })).filter(b => b.player);
+        if (hasMatchScopedData) {
+          // Use match-scoped stats
+          const inningsBatting = matchBattingStats?.filter(s => s.innings_number === inning.innings_number) || [];
+          const inningsBowling = matchBowlingStats?.filter(s => s.innings_number === inning.innings_number) || [];
+
+          batsmen = inningsBatting.map(stats => ({
+            player: playersMap.get(stats.player_id) as Player,
+            stats: stats as MatchBattingStat
+          })).filter(b => b.player);
+
+          bowlers = inningsBowling.map(stats => ({
+            player: playersMap.get(stats.player_id) as Player,
+            stats: stats as MatchBowlingStat
+          })).filter(b => b.player);
+        } else {
+          // Fallback to innings-scoped stats (for backwards compatibility)
+          const { data: batsmanStats } = await supabase
+            .from('batsman_innings_stats')
+            .select('*')
+            .eq('innings_id', inning.id)
+            .order('batting_order');
+
+          const { data: bowlerStats } = await supabase
+            .from('bowler_innings_stats')
+            .select('*')
+            .eq('innings_id', inning.id)
+            .order('overs_bowled', { ascending: false });
+
+          batsmen = (batsmanStats || []).map(stats => ({
+            player: playersMap.get(stats.batsman_id) as Player,
+            stats: {
+              id: stats.id,
+              match_id: matchId,
+              innings_number: inning.innings_number,
+              team_id: inning.batting_team_id,
+              player_id: stats.batsman_id,
+              runs: stats.runs_scored,
+              balls: stats.balls_faced,
+              fours: stats.fours,
+              sixes: stats.sixes,
+              is_out: stats.is_out,
+              dismissal_type: stats.is_out ? 'out' : null,
+              batting_order: stats.batting_order
+            } as MatchBattingStat
+          })).filter(b => b.player);
+
+          bowlers = (bowlerStats || []).map(stats => ({
+            player: playersMap.get(stats.bowler_id) as Player,
+            stats: {
+              id: stats.id,
+              match_id: matchId,
+              innings_number: inning.innings_number,
+              team_id: inning.bowling_team_id,
+              player_id: stats.bowler_id,
+              overs: stats.overs_bowled,
+              runs_conceded: stats.runs_conceded,
+              wickets: stats.wickets_taken,
+              wides: stats.wides,
+              no_balls: stats.no_balls
+            } as MatchBowlingStat
+          })).filter(b => b.player);
+        }
 
         if (battingTeam && bowlingTeam) {
           inningsResults.push({
@@ -153,13 +239,13 @@ export function CompletedMatchScorecard({ matchId, team1, team2 }: CompletedMatc
                     </span>
                     {row.stats.is_out && <span className="text-xs text-destructive ml-1">out</span>}
                   </div>
-                  <div className="col-span-2 text-center font-bold">{row.stats.runs_scored}</div>
-                  <div className="col-span-2 text-center text-muted-foreground">{row.stats.balls_faced}</div>
+                  <div className="col-span-2 text-center font-bold">{row.stats.runs}</div>
+                  <div className="col-span-2 text-center text-muted-foreground">{row.stats.balls}</div>
                   <div className="col-span-1 text-center text-cricket-four">{row.stats.fours}</div>
                   <div className="col-span-1 text-center text-cricket-six">{row.stats.sixes}</div>
                   <div className="col-span-1 text-center text-muted-foreground text-xs">
-                    {row.stats.balls_faced > 0 
-                      ? ((row.stats.runs_scored / row.stats.balls_faced) * 100).toFixed(0)
+                    {row.stats.balls > 0 
+                      ? ((row.stats.runs / row.stats.balls) * 100).toFixed(0)
                       : '-'
                     }
                   </div>
@@ -187,12 +273,12 @@ export function CompletedMatchScorecard({ matchId, team1, team2 }: CompletedMatc
               {data.bowlers.map((row) => (
                 <div key={row.stats.id} className="grid grid-cols-12 gap-1 px-3 py-2 border-t border-border text-sm">
                   <div className="col-span-5 truncate font-medium">{row.player.name}</div>
-                  <div className="col-span-2 text-center">{row.stats.overs_bowled}</div>
+                  <div className="col-span-2 text-center">{row.stats.overs}</div>
                   <div className="col-span-2 text-center">{row.stats.runs_conceded}</div>
-                  <div className="col-span-2 text-center font-bold text-cricket-wicket">{row.stats.wickets_taken}</div>
+                  <div className="col-span-2 text-center font-bold text-cricket-wicket">{row.stats.wickets}</div>
                   <div className="col-span-1 text-center text-muted-foreground text-xs">
-                    {row.stats.overs_bowled > 0 
-                      ? (row.stats.runs_conceded / row.stats.overs_bowled).toFixed(1)
+                    {row.stats.overs > 0 
+                      ? (row.stats.runs_conceded / row.stats.overs).toFixed(1)
                       : '-'
                     }
                   </div>
