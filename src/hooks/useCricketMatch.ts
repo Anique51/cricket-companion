@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { 
   Match, Innings, Over, Delivery, Player, 
@@ -153,6 +153,30 @@ export function useCricketMatch(): UseCricketMatchReturn {
   const [showMatchResult, setShowMatchResult] = useState(false);
   const [pendingBowlerChange, setPendingBowlerChange] = useState(false);
   const [bowlerModalTriggered, setBowlerModalTriggered] = useState(false);
+
+  // Cache team sizes to avoid repeated COUNT queries during scoring
+  const teamSizeCacheRef = useRef<Map<string, number>>(new Map());
+
+  const getTeamPlayerCount = useCallback(async (teamId: string): Promise<number> => {
+    if (!teamId) return 10;
+
+    const cached = teamSizeCacheRef.current.get(teamId);
+    if (typeof cached === 'number') return cached;
+
+    const { count, error } = await supabase
+      .from('players')
+      .select('id', { count: 'exact', head: true })
+      .eq('team_id', teamId);
+
+    if (error) {
+      console.error('Error counting team players:', error);
+      return 10;
+    }
+
+    const size = count ?? 10;
+    teamSizeCacheRef.current.set(teamId, size);
+    return size;
+  }, []);
 
   // Allow manual opening of bowler modal for recovery
   const openBowlerModal = useCallback(() => {
@@ -322,10 +346,12 @@ export function useCricketMatch(): UseCricketMatchReturn {
 
   // Check if innings should end (all wickets or overs complete)
   const checkInningsEnd = useCallback(async (innings: Innings, totalOvers: number) => {
-    const maxWickets = 10; // Standard cricket
+    // In this app's single-batsman model, the innings ends ONLY when the LAST batsman gets out.
+    // So "all out" means wickets == team size (not team size - 1).
+    const teamSize = await getTeamPlayerCount(innings.batting_team_id);
     const oversCompleted = Math.floor(innings.total_overs_completed);
     
-    if (innings.total_wickets >= maxWickets || oversCompleted >= totalOvers) {
+    if (innings.total_wickets >= teamSize || oversCompleted >= totalOvers) {
       // Persist match-scoped stats before ending innings
       if (match) {
         await persistMatchStats(match.id, innings.innings_number, innings.id);
@@ -355,7 +381,7 @@ export function useCricketMatch(): UseCricketMatchReturn {
           
           if (innings.total_runs >= target) {
             winnerId = innings.batting_team_id;
-            const wicketsRemaining = maxWickets - innings.total_wickets;
+            const wicketsRemaining = Math.max(teamSize - innings.total_wickets, 0);
             const teamName = await getTeamName(winnerId);
             resultDesc = `${teamName} Won by ${wicketsRemaining} wicket${wicketsRemaining !== 1 ? 's' : ''}`;
           } else {
@@ -388,7 +414,7 @@ export function useCricketMatch(): UseCricketMatchReturn {
       return true;
     }
     return false;
-  }, [match]);
+  }, [match, getTeamPlayerCount]);
 
   // Check if chasing team won (during second innings)
   const checkChasingWin = useCallback(async (innings: Innings) => {
@@ -410,7 +436,8 @@ export function useCricketMatch(): UseCricketMatchReturn {
         }
         
         // Chasing team wins!
-        const wicketsRemaining = 10 - innings.total_wickets;
+        const teamSize = await getTeamPlayerCount(innings.batting_team_id);
+        const wicketsRemaining = Math.max(teamSize - innings.total_wickets, 0);
         const teamName = await getTeamName(innings.batting_team_id);
         const resultDesc = `${teamName} Won by ${wicketsRemaining} wicket${wicketsRemaining !== 1 ? 's' : ''}`;
         
@@ -441,7 +468,7 @@ export function useCricketMatch(): UseCricketMatchReturn {
       }
     }
     return false;
-  }, [match]);
+  }, [match, getTeamPlayerCount]);
 
   // End innings manually
   const endInningsManually = useCallback(async () => {
@@ -473,7 +500,8 @@ export function useCricketMatch(): UseCricketMatchReturn {
         
         if (currentInnings.total_runs >= target) {
           winnerId = currentInnings.batting_team_id;
-          const wicketsRemaining = 10 - currentInnings.total_wickets;
+          const teamSize = await getTeamPlayerCount(currentInnings.batting_team_id);
+          const wicketsRemaining = Math.max(teamSize - currentInnings.total_wickets, 0);
           const teamName = await getTeamName(winnerId);
           resultDesc = `${teamName} Won by ${wicketsRemaining} wicket${wicketsRemaining !== 1 ? 's' : ''}`;
         } else {
@@ -503,7 +531,7 @@ export function useCricketMatch(): UseCricketMatchReturn {
         setShowMatchResult(true);
       }
     }
-  }, [currentInnings, match]);
+  }, [currentInnings, match, getTeamPlayerCount]);
 
   // End match manually
   const endMatchManually = useCallback(async () => {
@@ -534,7 +562,8 @@ export function useCricketMatch(): UseCricketMatchReturn {
       
       if (inn2.total_runs > inn1.total_runs) {
         winnerId = inn2.batting_team_id;
-        const wicketsRemaining = 10 - inn2.total_wickets;
+        const teamSize = await getTeamPlayerCount(inn2.batting_team_id);
+        const wicketsRemaining = Math.max(teamSize - inn2.total_wickets, 0);
         const teamName = await getTeamName(winnerId);
         resultDesc = `${teamName} Won by ${wicketsRemaining} wicket${wicketsRemaining !== 1 ? 's' : ''}`;
       } else if (inn1.total_runs > inn2.total_runs) {
@@ -565,7 +594,7 @@ export function useCricketMatch(): UseCricketMatchReturn {
     } : null);
     
     setShowMatchResult(true);
-  }, [match, currentInnings]);
+  }, [match, currentInnings, getTeamPlayerCount]);
 
   // Record a delivery - ATOMIC OPERATION
   const recordDelivery = useCallback(async (action: ScoringAction) => {
@@ -744,15 +773,43 @@ export function useCricketMatch(): UseCricketMatchReturn {
           currentBatsman.id
         );
 
-        if (availablePlayers.length === 0 || newTotalWickets >= 10) {
-          // No more batsmen - end innings automatically (don't show batsman modal)
+        if (availablePlayers.length === 0) {
+          // Last batsman has gotten out -> end innings now (do NOT end merely because only one is left)
+          let finalOversCompleted = currentInnings.total_overs_completed;
+
+          // If this wicket was the 6th legal ball, complete the over for accurate overs/bowler stats.
+          // (But do NOT ask for a new bowler since the innings is ending.)
+          if (newLegalCount >= 6 && bowlerStats?.id) {
+            const completedOvers = Math.floor(currentInnings.total_overs_completed) + 1;
+
+            await supabase
+              .from('overs')
+              .update({ is_completed: true })
+              .eq('id', currentOver.id);
+
+            await supabase
+              .from('bowler_innings_stats')
+              .update({ overs_bowled: (bowlerStats.overs_bowled || 0) + 1 })
+              .eq('id', bowlerStats.id);
+
+            await supabase
+              .from('innings')
+              .update({ total_overs_completed: completedOvers })
+              .eq('id', currentInnings.id);
+
+            finalOversCompleted = completedOvers;
+            setCurrentInnings(prev => prev ? { ...prev, total_overs_completed: completedOvers } : null);
+            setDeliveries([]);
+            setLegalBallCount(0);
+          }
+
           await checkInningsEnd({
             ...currentInnings,
             total_runs: newTotalRuns,
             total_wickets: newTotalWickets,
-            total_overs_completed: currentInnings.total_overs_completed
+            total_overs_completed: finalOversCompleted
           }, match.total_overs);
-          
+
           setIsProcessingDelivery(false);
         } else if (availablePlayers.length === 1) {
           // Exactly one batsman left - auto-select them
