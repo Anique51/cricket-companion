@@ -282,39 +282,42 @@ export function useCricketMatch(): UseCricketMatchReturn {
     }
   }, [loadDeliveries, loadDismissedBatsmen]);
 
-  // Check how many batsmen are still available
-  const getAvailableBatsmenCount = useCallback(async (inningsId: string, battingTeamId: string) => {
+  // Check how many batsmen are still available and get the list
+  const getAvailableBatsmen = useCallback(async (inningsId: string, battingTeamId: string, justDismissedId?: string) => {
     // Get total players in batting team
     const { data: allPlayers } = await supabase
       .from('players')
-      .select('id')
+      .select('*')
       .eq('team_id', battingTeamId);
     
-    // Get dismissed batsmen
+    // Get all dismissed batsmen from the database
     const { data: dismissed } = await supabase
       .from('batsman_innings_stats')
       .select('batsman_id')
       .eq('innings_id', inningsId)
       .eq('is_out', true);
 
-    // Get batsmen who have batted (but not out)
-    const { data: batted } = await supabase
+    // Get batsmen who are currently batting (not out)
+    const { data: currentlyBatting } = await supabase
       .from('batsman_innings_stats')
       .select('batsman_id')
-      .eq('innings_id', inningsId);
+      .eq('innings_id', inningsId)
+      .eq('is_out', false);
 
-    const totalPlayers = allPlayers?.length || 0;
-    const dismissedCount = dismissed?.length || 0;
-    const battedIds = new Set(batted?.map(b => b.batsman_id) || []);
     const dismissedIds = new Set(dismissed?.map(b => b.batsman_id) || []);
+    const currentlyBattingIds = new Set(currentlyBatting?.map(b => b.batsman_id) || []);
+    
+    // Add the just-dismissed batsman to dismissed set (in case DB hasn't updated yet)
+    if (justDismissedId) {
+      dismissedIds.add(justDismissedId);
+    }
 
-    // Available = players who haven't batted yet + current batsman (if any)
-    const availableToBat = (allPlayers || []).filter(p => 
-      !dismissedIds.has(p.id)
-    ).length;
+    // Available batsmen = players who are NOT dismissed AND NOT currently batting
+    const availablePlayers = (allPlayers || []).filter(p => 
+      !dismissedIds.has(p.id) && !currentlyBattingIds.has(p.id)
+    );
 
-    // Return count of players who can still bat (excluding current batsman who just got out)
-    return availableToBat - 1; // -1 because current batsman just got out
+    return availablePlayers;
   }, []);
 
   // Check if innings should end (all wickets or overs complete)
@@ -734,15 +737,16 @@ export function useCricketMatch(): UseCricketMatchReturn {
 
       // Handle wicket
       if (isWicket) {
-        // Check if there are more batsmen available
-        const availableBatsmen = await getAvailableBatsmenCount(
+        // Get available batsmen (pass current batsman id as just dismissed)
+        const availablePlayers = await getAvailableBatsmen(
           currentInnings.id, 
-          currentInnings.batting_team_id
+          currentInnings.batting_team_id,
+          currentBatsman.id
         );
 
-        if (availableBatsmen <= 0 || newTotalWickets >= 10) {
+        if (availablePlayers.length === 0 || newTotalWickets >= 10) {
           // No more batsmen - end innings automatically (don't show batsman modal)
-          const inningsEnded = await checkInningsEnd({
+          await checkInningsEnd({
             ...currentInnings,
             total_runs: newTotalRuns,
             total_wickets: newTotalWickets,
@@ -750,8 +754,19 @@ export function useCricketMatch(): UseCricketMatchReturn {
           }, match.total_overs);
           
           setIsProcessingDelivery(false);
+        } else if (availablePlayers.length === 1) {
+          // Exactly one batsman left - auto-select them
+          const lastBatsman = availablePlayers[0];
+          
+          // Set pending bowler change if this was the last ball
+          if (newLegalCount >= 6) {
+            setPendingBowlerChange(true);
+          }
+          
+          // Auto-select the last remaining batsman
+          await autoSelectBatsman(lastBatsman.id, newLegalCount >= 6);
         } else {
-          // Need new batsman, and if last ball, also new bowler
+          // Multiple batsmen available - show selection modal
           if (newLegalCount >= 6) {
             setPendingBowlerChange(true);
           }
@@ -789,7 +804,7 @@ export function useCricketMatch(): UseCricketMatchReturn {
   }, [
     isProcessingDelivery, currentOver, currentInnings, currentBatsman, 
     currentBowler, match, batsmanStats, bowlerStats, deliveries, 
-    legalBallCount, checkChasingWin, checkInningsEnd, getAvailableBatsmenCount
+    legalBallCount, checkChasingWin, checkInningsEnd, getAvailableBatsmen
   ]);
 
   // Complete current over
@@ -824,6 +839,79 @@ export function useCricketMatch(): UseCricketMatchReturn {
     setDeliveries([]);
     setLegalBallCount(0);
   }, [currentOver, currentInnings, bowlerStats]);
+
+  // Auto-select batsman (when only one remains after wicket)
+  const autoSelectBatsman = useCallback(async (playerId: string, isLastBallOfOver: boolean) => {
+    if (!currentInnings) return;
+    
+    try {
+      // Get batting order
+      const { data: existingStats } = await supabase
+        .from('batsman_innings_stats')
+        .select('batting_order')
+        .eq('innings_id', currentInnings.id)
+        .order('batting_order', { ascending: false })
+        .limit(1);
+      
+      const newOrder = (existingStats?.[0]?.batting_order || 0) + 1;
+
+      // Create new batsman stats
+      const { data: newStats, error } = await supabase
+        .from('batsman_innings_stats')
+        .insert({
+          innings_id: currentInnings.id,
+          batsman_id: playerId,
+          runs_scored: 0,
+          balls_faced: 0,
+          fours: 0,
+          sixes: 0,
+          is_out: false,
+          batting_order: newOrder
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Load new batsman
+      const { data: batsmanData } = await supabase
+        .from('players')
+        .select('*')
+        .eq('id', playerId)
+        .single();
+
+      setCurrentBatsman(batsmanData);
+      setBatsmanStats(newStats);
+      
+      toast.success(`${batsmanData?.name || 'Last batsman'} is now batting`);
+
+      // If wicket was on last ball, complete over and show bowler modal
+      if (isLastBallOfOver) {
+        await completeOver();
+        setPendingBowlerChange(false);
+        
+        // Check if this was the last over
+        const newOversCompleted = Math.floor(currentInnings.total_overs_completed) + 1;
+        if (match && newOversCompleted >= match.total_overs) {
+          // Last over - end innings, don't ask for bowler
+          await checkInningsEnd({
+            ...currentInnings,
+            total_overs_completed: newOversCompleted
+          }, match.total_overs);
+          setIsProcessingDelivery(false);
+        } else {
+          setShowBowlerModal(true);
+        }
+      } else {
+        setIsProcessingDelivery(false);
+      }
+
+    } catch (error) {
+      console.error('Error auto-selecting batsman:', error);
+      toast.error('Failed to select batsman');
+      setIsProcessingDelivery(false);
+    }
+  }, [currentInnings, completeOver, match, checkInningsEnd]);
 
   // Select new batsman after wicket
   const selectNewBatsman = useCallback(async (playerId: string) => {
