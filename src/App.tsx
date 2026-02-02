@@ -7,7 +7,7 @@ import { useEffect } from "react";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import { MatchSetup } from "./components/cricket/MatchSetup";
-import MatchScoring from "./pages/MatchScoring";
+import LocalMatchScoring from "./pages/LocalMatchScoring";
 import TeamsPlayers from "./pages/TeamsPlayers";
 import TeamDetail from "./pages/TeamDetail";
 import Dashboard from "./pages/Dashboard";
@@ -38,7 +38,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/new-match" element={<MatchSetup />} />
-          <Route path="/match/:matchId" element={<MatchScoring />} />
+          <Route path="/match/:matchId" element={<LocalMatchScoring />} />
           <Route path="/live" element={<Live />} />
           <Route path="/teams" element={<TeamsPlayers />} />
           <Route path="/team/:teamId" element={<TeamDetail />} />
