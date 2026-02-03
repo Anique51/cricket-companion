@@ -1,8 +1,16 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import type { Innings, Team } from '@/types/cricket';
-import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { useState, useEffect, useMemo } from 'react';
+import { 
+  getMatch,
+  getMatchInnings,
+  getDeliveryEvents,
+  getBatsmenState,
+  getBowlersState,
+  getTeamPlayers,
+} from '@/lib/localDb';
+import { deriveInningsState } from '@/lib/matchEngine';
 
 interface InningsSummaryModalProps {
   open: boolean;
@@ -32,56 +40,64 @@ export function InningsSummaryModal({
   }, [open, innings]);
 
   const loadTopPerformers = async () => {
-    if (!innings) return;
+    if (!innings || !innings.match_id) return;
 
-    // Get top scorer
-    const { data: batsmanStats } = await supabase
-      .from('batsman_innings_stats')
-      .select('runs_scored, balls_faced, batsman_id')
-      .eq('innings_id', innings.id)
-      .order('runs_scored', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    try {
+      // Load from local IndexedDB
+      const localMatch = await getMatch(innings.match_id);
+      if (!localMatch) return;
 
-    if (batsmanStats) {
-      const { data: player } = await supabase
-        .from('players')
-        .select('name')
-        .eq('id', batsmanStats.batsman_id)
-        .single();
+      // Get all events for the first innings
+      const allEvents = await getDeliveryEvents(innings.match_id, innings.innings_number);
       
-      if (player) {
-        // Format: 30 (12)
+      // Load players for names
+      const team1Players = await getTeamPlayers(localMatch.team1Id);
+      const team2Players = await getTeamPlayers(localMatch.team2Id);
+      const playerNames = new Map<string, string>();
+      [...team1Players, ...team2Players].forEach(p => playerNames.set(p.id, p.name));
+
+      // Get batsmen and bowlers state
+      const batsmenState = await getBatsmenState(innings.match_id, innings.innings_number);
+      const bowlersState = await getBowlersState(innings.match_id, innings.innings_number);
+
+      // Derive innings state
+      const state = deriveInningsState(
+        allEvents,
+        innings.innings_number,
+        innings.batting_team_id,
+        innings.bowling_team_id,
+        playerNames,
+        batsmenState,
+        bowlersState
+      );
+
+      // Find top scorer
+      const batsmanStats = Array.from(state.batsmanStats.values());
+      if (batsmanStats.length > 0) {
+        const topBatsman = batsmanStats.reduce((best, curr) => 
+          curr.runsScored > best.runsScored ? curr : best
+        );
         setTopScorer({
-          name: player.name,
-          stat: `${batsmanStats.runs_scored} (${batsmanStats.balls_faced})`
+          name: topBatsman.playerName,
+          stat: `${topBatsman.runsScored} (${topBatsman.ballsFaced})`
         });
       }
-    }
 
-    // Get top wicket taker
-    const { data: bowlerStats } = await supabase
-      .from('bowler_innings_stats')
-      .select('wickets_taken, runs_conceded, overs_bowled, bowler_id')
-      .eq('innings_id', innings.id)
-      .order('wickets_taken', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (bowlerStats && bowlerStats.wickets_taken > 0) {
-      const { data: player } = await supabase
-        .from('players')
-        .select('name')
-        .eq('id', bowlerStats.bowler_id)
-        .single();
-      
-      if (player) {
-        // Format: 2/28 (2)
-        setTopWicketTaker({
-          name: player.name,
-          stat: `${bowlerStats.wickets_taken}/${bowlerStats.runs_conceded} (${bowlerStats.overs_bowled})`
-        });
+      // Find top wicket taker
+      const bowlerStats = Array.from(state.bowlerStats.values());
+      if (bowlerStats.length > 0) {
+        const topBowler = bowlerStats.reduce((best, curr) => 
+          curr.wicketsTaken > best.wicketsTaken ? curr : best
+        );
+        if (topBowler.wicketsTaken > 0) {
+          setTopWicketTaker({
+            name: topBowler.playerName,
+            stat: `${topBowler.wicketsTaken}/${topBowler.runsConceded} (${topBowler.oversBowled})`
+          });
+        }
       }
+    } catch (error) {
+      console.error('Error loading top performers:', error);
     }
   };
 

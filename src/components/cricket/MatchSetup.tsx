@@ -8,6 +8,20 @@ import { Input } from '@/components/ui/input';
 import type { Team, Player } from '@/types/cricket';
 import { toast } from 'sonner';
 import { ChevronLeft } from 'lucide-react';
+import {
+  initDB,
+  generateId,
+  saveMatch,
+  saveInnings,
+  savePlayers,
+  saveBatsmanState,
+  saveBowlerState,
+  type LocalMatch,
+  type LocalInnings,
+  type LocalPlayer,
+  type LocalBatsmanState,
+  type LocalBowlerState,
+} from '@/lib/localDb';
 
 export function MatchSetup() {
   const navigate = useNavigate();
@@ -25,7 +39,7 @@ export function MatchSetup() {
   const [openingBowlerId, setOpeningBowlerId] = useState<string>('');
 
   useEffect(() => {
-    loadTeamsAndPlayers();
+    initDB().then(() => loadTeamsAndPlayers());
   }, []);
 
   const loadTeamsAndPlayers = async () => {
@@ -53,94 +67,75 @@ export function MatchSetup() {
     
     setCreating(true);
     try {
-      // Create match
-      const { data: match, error: matchError } = await supabase
-        .from('matches')
-        .insert({
-          team1_id: team1Id,
-          team2_id: team2Id,
-          total_overs: parseInt(totalOvers),
-          status: 'in_progress'
-        })
-        .select()
-        .single();
+      // Generate local match ID
+      const matchId = generateId();
+      
+      // Get team info for local storage
+      const team1 = teams.find(t => t.id === team1Id);
+      const team2 = teams.find(t => t.id === team2Id);
+      
+      if (!team1 || !team2) throw new Error('Teams not found');
 
-      if (matchError) throw matchError;
+      // 1. Save match to local IndexedDB
+      const localMatch: LocalMatch = {
+        id: matchId,
+        team1Id: team1Id,
+        team2Id: team2Id,
+        team1Name: team1.name,
+        team2Name: team2.name,
+        team1ShortName: team1.short_name || team1.name.substring(0, 3).toUpperCase(),
+        team2ShortName: team2.short_name || team2.name.substring(0, 3).toUpperCase(),
+        totalOvers: parseInt(totalOvers),
+        status: 'LIVE',
+        winnerId: null,
+        resultDescription: null,
+        createdAt: Date.now(),
+        completedAt: null,
+        syncedAt: null,
+      };
+      await saveMatch(localMatch);
 
-      // Create first innings
-      const { data: innings, error: inningsError } = await supabase
-        .from('innings')
-        .insert({
-          match_id: match.id,
-          innings_number: 1,
-          batting_team_id: battingTeamId,
-          bowling_team_id: bowlingTeamId,
-          total_runs: 0,
-          total_wickets: 0,
-          total_overs_completed: 0,
-          total_extras: 0,
-          is_completed: false
-        })
-        .select()
-        .single();
+      // 2. Save first innings to local
+      const localInnings: LocalInnings = {
+        matchId: matchId,
+        inningsNumber: 1,
+        battingTeamId: battingTeamId,
+        bowlingTeamId: bowlingTeamId,
+        isCompleted: false,
+      };
+      await saveInnings(localInnings);
 
-      if (inningsError) throw inningsError;
+      // 3. Cache ALL players from both teams to local DB
+      const allMatchPlayers: LocalPlayer[] = players
+        .filter(p => p.team_id === team1Id || p.team_id === team2Id)
+        .map(p => ({
+          id: p.id,
+          name: p.name,
+          teamId: p.team_id,
+        }));
+      await savePlayers(allMatchPlayers);
 
-      // Create first over
-      const { error: overError } = await supabase
-        .from('overs')
-        .insert({
-          innings_id: innings.id,
-          over_number: 1,
-          bowler_id: openingBowlerId,
-          runs_conceded: 0,
-          wickets_taken: 0,
-          is_completed: false
-        });
+      // 4. Save opening batsman state
+      const batsmanState: LocalBatsmanState = {
+        playerId: openingBatsmanId,
+        inningsNumber: 1,
+        matchId: matchId,
+        battingOrder: 1,
+        isOut: false,
+      };
+      await saveBatsmanState(batsmanState);
 
-      if (overError) throw overError;
-
-      // Create batsman stats
-      const { error: batsmanError } = await supabase
-        .from('batsman_innings_stats')
-        .insert({
-          innings_id: innings.id,
-          batsman_id: openingBatsmanId,
-          runs_scored: 0,
-          balls_faced: 0,
-          fours: 0,
-          sixes: 0,
-          is_out: false,
-          batting_order: 1
-        });
-
-      if (batsmanError) throw batsmanError;
-
-      // Create bowler stats
-      const { error: bowlerError } = await supabase
-        .from('bowler_innings_stats')
-        .insert({
-          innings_id: innings.id,
-          bowler_id: openingBowlerId,
-          overs_bowled: 0,
-          runs_conceded: 0,
-          wickets_taken: 0,
-          wides: 0,
-          no_balls: 0
-        });
-
-      if (bowlerError) throw bowlerError;
-
-      // Log match event
-      await supabase.from('match_events').insert({
-        match_id: match.id,
-        innings_id: innings.id,
-        event_type: 'match_started',
-        event_data: { team1_id: team1Id, team2_id: team2Id, overs: parseInt(totalOvers) }
-      });
+      // 5. Save opening bowler state
+      const bowlerState: LocalBowlerState = {
+        playerId: openingBowlerId,
+        inningsNumber: 1,
+        matchId: matchId,
+        overNumbers: [1],
+      };
+      await saveBowlerState(bowlerState);
 
       toast.success('Match started!');
-      navigate(`/match/${match.id}`);
+      navigate(`/match/${matchId}`);
 
     } catch (error) {
       console.error('Error creating match:', error);

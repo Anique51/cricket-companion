@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
+import { getTeamPlayers, type LocalPlayer } from '@/lib/localDb';
 import type { Player } from '@/types/cricket';
 import { cn } from '@/lib/utils';
 
@@ -23,7 +24,7 @@ export function PlayerSelectModal({
   excludePlayerIds = EMPTY_EXCLUDE,
   type
 }: PlayerSelectModalProps) {
-  const [players, setPlayers] = useState<Player[]>([]);
+  const [players, setPlayers] = useState<(Player | LocalPlayer)[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -34,18 +35,50 @@ export function PlayerSelectModal({
 
   const loadPlayers = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('players')
-      .select('*')
-      .eq('team_id', teamId)
-      .order('name');
     
-    if (!error && data) {
-      // Filter out excluded players (dismissed batsmen)
-      const availablePlayers = data.filter(p => !excludePlayerIds.includes(p.id));
-      setPlayers(availablePlayers);
+    try {
+      // Try local IndexedDB first
+      const localPlayers = await getTeamPlayers(teamId);
+      
+      if (localPlayers.length > 0) {
+        // Filter out excluded players (dismissed batsmen)
+        const availablePlayers = localPlayers.filter(p => !excludePlayerIds.includes(p.id));
+        setPlayers(availablePlayers);
+      } else {
+        // Fallback to Supabase
+        const { data, error } = await supabase
+          .from('players')
+          .select('*')
+          .eq('team_id', teamId)
+          .order('name');
+        
+        if (!error && data) {
+          // Filter out excluded players (dismissed batsmen)
+          const availablePlayers = data.filter(p => !excludePlayerIds.includes(p.id));
+          setPlayers(availablePlayers);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading players:', error);
+      // Fallback to Supabase on error
+      const { data } = await supabase
+        .from('players')
+        .select('*')
+        .eq('team_id', teamId)
+        .order('name');
+      
+      if (data) {
+        const availablePlayers = data.filter(p => !excludePlayerIds.includes(p.id));
+        setPlayers(availablePlayers);
+      }
     }
+    
     setLoading(false);
+  };
+
+  // Get player name (works for both types)
+  const getPlayerName = (player: Player | LocalPlayer) => {
+    return player.name;
   };
 
   return (
@@ -77,7 +110,7 @@ export function PlayerSelectModal({
                       : "border-cricket-wicket/20 hover:border-cricket-wicket"
                   )}
                 >
-                  <span className="font-medium text-foreground">{player.name}</span>
+                  <span className="font-medium text-foreground">{getPlayerName(player)}</span>
                 </button>
               ))}
             </div>
