@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { useLocalMatch } from '@/hooks/useLocalMatch';
 import { LocalScoreCard } from '@/components/cricket/LocalScoreCard';
 import { LocalBatsmanCard } from '@/components/cricket/LocalBatsmanCard';
@@ -60,8 +59,6 @@ export default function LocalMatchScoring() {
     handleNoBallOption,
   } = useLocalMatch();
 
-  const [team1, setTeam1] = useState<Team | null>(null);
-  const [team2, setTeam2] = useState<Team | null>(null);
   const [showSecondInningsSetup, setShowSecondInningsSetup] = useState(false);
   const [showScorecard, setShowScorecard] = useState(false);
 
@@ -72,25 +69,6 @@ export default function LocalMatchScoring() {
     }
   }, [matchId, loadMatch]);
 
-  // Load teams when match is loaded
-  useEffect(() => {
-    if (match) {
-      loadTeams();
-    }
-  }, [match]);
-
-  const loadTeams = async () => {
-    if (!match) return;
-    
-    const [t1Res, t2Res] = await Promise.all([
-      supabase.from('teams').select('*').eq('id', match.team1Id).single(),
-      supabase.from('teams').select('*').eq('id', match.team2Id).single(),
-    ]);
-    
-    if (t1Res.data) setTeam1(t1Res.data);
-    if (t2Res.data) setTeam2(t2Res.data);
-  };
-
   const handleStartSecondInnings = async () => {
     setShowInningsSummary(false);
     setShowSecondInningsSetup(true);
@@ -100,6 +78,21 @@ export default function LocalMatchScoring() {
     await startSecondInnings(battingTeamId, batsmanId, bowlerId);
     setShowSecondInningsSetup(false);
   };
+
+  // Build team objects from match data (local only, no Supabase)
+  const team1: Team | null = match ? {
+    id: match.team1Id,
+    name: match.team1Name,
+    short_name: match.team1ShortName,
+    created_at: new Date(match.createdAt).toISOString(),
+  } : null;
+  
+  const team2: Team | null = match ? {
+    id: match.team2Id,
+    name: match.team2Name,
+    short_name: match.team2ShortName,
+    created_at: new Date(match.createdAt).toISOString(),
+  } : null;
 
   // Get batting team name
   const battingTeamName = currentInnings 
@@ -116,12 +109,28 @@ export default function LocalMatchScoring() {
     );
   }
 
+  if (!match) {
+    return (
+      <MainLayout hideNav>
+        <div className="min-h-screen flex items-center justify-center flex-col gap-4">
+          <div className="text-muted-foreground">Match not found</div>
+          <button 
+            onClick={() => navigate('/')} 
+            className="text-primary hover:underline"
+          >
+            Go back home
+          </button>
+        </div>
+      </MainLayout>
+    );
+  }
+
   // Create first innings object for SecondInningsSetup
   const firstInningsForSetup: Innings | null = firstInningsRuns !== null ? {
     id: '',
-    match_id: match?.id || '',
+    match_id: match.id,
     innings_number: 1,
-    batting_team_id: currentInnings?.battingTeamId === match?.team1Id ? match?.team2Id || '' : match?.team1Id || '',
+    batting_team_id: currentInnings?.battingTeamId === match.team1Id ? match.team2Id : match.team1Id,
     bowling_team_id: currentInnings?.battingTeamId || '',
     total_runs: firstInningsRuns,
     total_wickets: 0,
@@ -131,7 +140,7 @@ export default function LocalMatchScoring() {
     created_at: '',
   } : null;
 
-  if (showSecondInningsSetup && match && firstInningsForSetup) {
+  if (showSecondInningsSetup && firstInningsForSetup) {
     return (
       <SecondInningsSetup
         match={{
@@ -154,10 +163,10 @@ export default function LocalMatchScoring() {
     );
   }
 
-  const matchCompleted = match?.status === 'COMPLETED' || match?.status === 'PENDING_SYNC';
+  const matchCompleted = match.status === 'COMPLETED' || match.status === 'PENDING_SYNC';
 
   // For completed matches, show scorecard directly
-  if (matchCompleted && match) {
+  if (matchCompleted) {
     return (
       <MainLayout hideNav>
         {/* Header */}
@@ -202,7 +211,7 @@ export default function LocalMatchScoring() {
   // Create innings summary innings object
   const inningsSummaryInnings: Innings | null = currentInnings ? {
     id: '',
-    match_id: match?.id || '',
+    match_id: match.id,
     innings_number: currentInnings.inningsNumber,
     batting_team_id: currentInnings.battingTeamId,
     bowling_team_id: currentInnings.bowlingTeamId,
@@ -228,10 +237,10 @@ export default function LocalMatchScoring() {
             </button>
             <div>
               <h1 className="font-bold">
-                {match?.team1ShortName || team1?.short_name || team1?.name} vs {match?.team2ShortName || team2?.short_name || team2?.name}
+                {match.team1ShortName} vs {match.team2ShortName}
               </h1>
               <p className="text-xs opacity-80">
-                {match?.totalOvers} overs match
+                {match.totalOvers} overs match
                 {currentInnings && ` • Over ${currentInnings.currentOverNumber}`}
               </p>
             </div>
@@ -299,7 +308,7 @@ export default function LocalMatchScoring() {
         <LocalScoreCard 
           innings={currentInnings}
           battingTeamName={battingTeamName}
-          totalOvers={match?.totalOvers || 10}
+          totalOvers={match.totalOvers}
           target={target}
         />
 

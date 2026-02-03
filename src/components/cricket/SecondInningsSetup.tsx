@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import type { Team, Player, Match, Innings } from '@/types/cricket';
+import { getTeamPlayers, type LocalPlayer } from '@/lib/localDb';
+import type { Team, Match, Innings } from '@/types/cricket';
 import { ChevronLeft } from 'lucide-react';
 
 interface SecondInningsSetupProps {
@@ -23,7 +23,8 @@ export function SecondInningsSetup({
   onStart,
   onCancel
 }: SecondInningsSetupProps) {
-  const [players, setPlayers] = useState<Player[]>([]);
+  const [battingPlayers, setBattingPlayers] = useState<LocalPlayer[]>([]);
+  const [bowlingPlayers, setBowlingPlayers] = useState<LocalPlayer[]>([]);
   const [loading, setLoading] = useState(true);
   
   // The batting team for 2nd innings is the bowling team from 1st innings
@@ -37,20 +38,24 @@ export function SecondInningsSetup({
 
   useEffect(() => {
     loadPlayers();
-  }, []);
+  }, [battingTeamId, bowlingTeamId]);
 
   const loadPlayers = async () => {
-    const { data } = await supabase
-      .from('players')
-      .select('*')
-      .order('name');
-    
-    if (data) setPlayers(data);
-    setLoading(false);
+    try {
+      // Load from local IndexedDB
+      const [batters, bowlers] = await Promise.all([
+        getTeamPlayers(battingTeamId),
+        getTeamPlayers(bowlingTeamId)
+      ]);
+      
+      setBattingPlayers(batters);
+      setBowlingPlayers(bowlers);
+    } catch (error) {
+      console.error('Error loading players:', error);
+    } finally {
+      setLoading(false);
+    }
   };
-
-  const battingTeamPlayers = players.filter(p => p.team_id === battingTeamId);
-  const bowlingTeamPlayers = players.filter(p => p.team_id === bowlingTeamId);
 
   const target = firstInnings.total_runs + 1;
   const canStart = openingBatsmanId && openingBowlerId;
@@ -97,7 +102,7 @@ export function SecondInningsSetup({
               <SelectValue placeholder="Select batsman" />
             </SelectTrigger>
             <SelectContent>
-              {battingTeamPlayers.map(player => (
+              {battingPlayers.map(player => (
                 <SelectItem key={player.id} value={player.id}>{player.name}</SelectItem>
               ))}
             </SelectContent>
@@ -116,7 +121,7 @@ export function SecondInningsSetup({
               <SelectValue placeholder="Select bowler" />
             </SelectTrigger>
             <SelectContent>
-              {bowlingTeamPlayers.map(player => (
+              {bowlingPlayers.map(player => (
                 <SelectItem key={player.id} value={player.id}>{player.name}</SelectItem>
               ))}
             </SelectContent>

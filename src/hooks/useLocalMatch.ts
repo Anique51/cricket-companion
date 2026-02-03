@@ -1,7 +1,6 @@
 // Local-First Match Hook - Instant UI updates, no network in scoring path
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
 
 import {
   initDB,
@@ -220,85 +219,37 @@ export function useLocalMatch(): UseLocalMatchReturn {
     return Array.from(currentInnings?.dismissedBatsmanIds || []);
   }, [currentInnings]);
 
-  // Load match
+  // Load match from LOCAL IndexedDB only
   const loadMatch = useCallback(async (matchId: string) => {
     setIsLoading(true);
     try {
-      // Try local first
-      let localMatch = await getMatch(matchId);
+      await initDB();
+      
+      // Load match from local IndexedDB
+      const localMatch = await getMatch(matchId);
       
       if (!localMatch) {
-        // Load from Supabase
-        const { data: supaMatch } = await supabase
-          .from('matches')
-          .select('*')
-          .eq('id', matchId)
-          .single();
-        
-        if (!supaMatch) throw new Error('Match not found');
-        
-        // Get team info
-        const [team1Res, team2Res] = await Promise.all([
-          supabase.from('teams').select('*').eq('id', supaMatch.team1_id).single(),
-          supabase.from('teams').select('*').eq('id', supaMatch.team2_id).single(),
-        ]);
-        
-        localMatch = {
-          id: supaMatch.id,
-          team1Id: supaMatch.team1_id,
-          team2Id: supaMatch.team2_id,
-          team1Name: team1Res.data?.name || 'Team 1',
-          team2Name: team2Res.data?.name || 'Team 2',
-          team1ShortName: team1Res.data?.short_name || team1Res.data?.name || 'T1',
-          team2ShortName: team2Res.data?.short_name || team2Res.data?.name || 'T2',
-          totalOvers: supaMatch.total_overs,
-          status: supaMatch.status === 'completed' ? 'COMPLETED' : 'LIVE',
-          winnerId: supaMatch.winner_team_id,
-          resultDescription: supaMatch.result_description,
-          createdAt: new Date(supaMatch.created_at).getTime(),
-          completedAt: supaMatch.completed_at ? new Date(supaMatch.completed_at).getTime() : null,
-          syncedAt: null,
-        };
-        
-        await saveMatch(localMatch);
-        
-        // Load players
-        const [p1, p2] = await Promise.all([
-          supabase.from('players').select('*').eq('team_id', supaMatch.team1_id),
-          supabase.from('players').select('*').eq('team_id', supaMatch.team2_id),
-        ]);
-        
-        const allPlayers: LocalPlayer[] = [
-          ...(p1.data || []).map(p => ({ id: p.id, name: p.name, teamId: p.team_id })),
-          ...(p2.data || []).map(p => ({ id: p.id, name: p.name, teamId: p.team_id })),
-        ];
-        await savePlayers(allPlayers);
-        
-        // Update player names map
-        const names = new Map<string, string>();
-        allPlayers.forEach(p => names.set(p.id, p.name));
-        setPlayerNames(names);
-        
-        // Set team sizes
-        const sizes = new Map<string, number>();
-        sizes.set(supaMatch.team1_id, (p1.data || []).length);
-        sizes.set(supaMatch.team2_id, (p2.data || []).length);
-        setTeamSizes(sizes);
-      } else {
-        // Load player names from local
-        const team1Players = await getTeamPlayers(localMatch.team1Id);
-        const team2Players = await getTeamPlayers(localMatch.team2Id);
-        const names = new Map<string, string>();
-        [...team1Players, ...team2Players].forEach(p => names.set(p.id, p.name));
-        setPlayerNames(names);
-        
-        const sizes = new Map<string, number>();
-        sizes.set(localMatch.team1Id, team1Players.length);
-        sizes.set(localMatch.team2Id, team2Players.length);
-        setTeamSizes(sizes);
+        toast.error('Match not found in local storage');
+        setIsLoading(false);
+        return;
       }
       
       setMatch(localMatch);
+      
+      // Load player names from local IndexedDB
+      const team1Players = await getTeamPlayers(localMatch.team1Id);
+      const team2Players = await getTeamPlayers(localMatch.team2Id);
+      const allPlayers = [...team1Players, ...team2Players];
+      
+      const names = new Map<string, string>();
+      allPlayers.forEach(p => names.set(p.id, p.name));
+      setPlayerNames(names);
+      
+      // Set team sizes
+      const sizes = new Map<string, number>();
+      sizes.set(localMatch.team1Id, team1Players.length);
+      sizes.set(localMatch.team2Id, team2Players.length);
+      setTeamSizes(sizes);
       
       // Load innings data
       const ing1 = await getInnings(matchId, 1);
@@ -306,35 +257,41 @@ export function useLocalMatch(): UseLocalMatchReturn {
       setInnings1(ing1);
       setInnings2(ing2);
       
-      // Determine current innings
-      if (ing2 && !ing2.isCompleted) {
-        setCurrentInningsNumber(2);
-        // Load first innings runs for target
-        const ing1Events = await getDeliveryEvents(matchId, 1);
-        const ing1State = deriveInningsState(ing1Events, 1, ing1!.battingTeamId, ing1!.bowlingTeamId, playerNames, [], []);
-        setFirstInningsRuns(ing1State.totalRuns);
-      } else if (ing1 && ing1.isCompleted && !ing2) {
-        // First innings complete, waiting for second
-        setCurrentInningsNumber(1);
-        const ing1Events = await getDeliveryEvents(matchId, 1);
-        const ing1State = deriveInningsState(ing1Events, 1, ing1.battingTeamId, ing1.bowlingTeamId, playerNames, [], []);
-        setFirstInningsRuns(ing1State.totalRuns);
-        setShowInningsSummary(true);
-      } else {
-        setCurrentInningsNumber(ing1 ? 1 : 1);
-      }
-      
-      // Load events
+      // Load all events
       const allEvents = await getDeliveryEvents(matchId);
       setEvents(allEvents);
       
+      // Determine current innings number
+      let activeInningsNumber = 1;
+      if (ing2 && !ing2.isCompleted) {
+        activeInningsNumber = 2;
+        // Calculate first innings runs for target
+        const ing1Events = allEvents.filter(e => e.inningsNumber === 1);
+        const ing1State = deriveInningsState(
+          ing1Events, 1, ing1!.battingTeamId, ing1!.bowlingTeamId, 
+          names, [], []
+        );
+        setFirstInningsRuns(ing1State.totalRuns);
+      } else if (ing1 && ing1.isCompleted && !ing2) {
+        // First innings complete, waiting for second
+        activeInningsNumber = 1;
+        const ing1Events = allEvents.filter(e => e.inningsNumber === 1);
+        const ing1State = deriveInningsState(
+          ing1Events, 1, ing1.battingTeamId, ing1.bowlingTeamId, 
+          names, [], []
+        );
+        setFirstInningsRuns(ing1State.totalRuns);
+        setShowInningsSummary(true);
+      }
+      setCurrentInningsNumber(activeInningsNumber);
+      
       // Load batsmen and bowlers state
-      const batsmen = await getBatsmenState(matchId, ing2 ? 2 : 1);
-      const bowlers = await getBowlersState(matchId, ing2 ? 2 : 1);
+      const batsmen = await getBatsmenState(matchId, activeInningsNumber);
+      const bowlers = await getBowlersState(matchId, activeInningsNumber);
       setBatsmenState(batsmen);
       setBowlersState(bowlers);
       
-      // Find current batsman/bowler
+      // Find current batsman (not out)
       if (batsmen.length > 0) {
         const notOutBatsman = batsmen.find(b => !b.isOut);
         if (notOutBatsman) {
@@ -343,11 +300,17 @@ export function useLocalMatch(): UseLocalMatchReturn {
         }
       }
       
+      // Find current bowler from bowler state or last event
       if (bowlers.length > 0) {
-        // Get the bowler of the current over
-        const lastEvent = allEvents.filter(e => e.inningsNumber === (ing2 ? 2 : 1)).pop();
-        if (lastEvent) {
+        const inningsEvents = allEvents.filter(e => e.inningsNumber === activeInningsNumber);
+        if (inningsEvents.length > 0) {
+          const lastEvent = inningsEvents[inningsEvents.length - 1];
           const player = await getPlayer(lastEvent.bowlerId);
+          setCurrentBowler(player);
+        } else {
+          // No events yet, use first bowler
+          const firstBowler = bowlers[0];
+          const player = await getPlayer(firstBowler.playerId);
           setCurrentBowler(player);
         }
       }
@@ -358,7 +321,7 @@ export function useLocalMatch(): UseLocalMatchReturn {
     } finally {
       setIsLoading(false);
     }
-  }, [playerNames]);
+  }, []);
 
   // Record delivery - INSTANT, NO NETWORK
   const recordDelivery = useCallback((action: ScoringAction) => {
@@ -501,6 +464,14 @@ export function useLocalMatch(): UseLocalMatchReturn {
               ? { ...b, isOut: false }
               : b
           ));
+          
+          // Persist the undo to batsman state
+          const batsmanToUpdate = batsmenState.find(
+            b => b.playerId === removedEvent.batsmanId && b.inningsNumber === currentInningsNumber
+          );
+          if (batsmanToUpdate) {
+            await saveBatsmanState({ ...batsmanToUpdate, isOut: false });
+          }
         }
         
         toast.success('Last delivery undone');
@@ -509,24 +480,16 @@ export function useLocalMatch(): UseLocalMatchReturn {
       console.error('Error undoing delivery:', error);
       toast.error('Failed to undo delivery');
     }
-  }, [match, canUndo, currentInningsNumber]);
+  }, [match, canUndo, currentInningsNumber, batsmenState]);
 
   // Select new batsman
   const selectNewBatsman = useCallback(async (playerId: string) => {
     if (!match) return;
     
     const player = await getPlayer(playerId);
-    if (!player) {
-      // Load from Supabase
-      const { data } = await supabase.from('players').select('*').eq('id', playerId).single();
-      if (data) {
-        const localPlayer: LocalPlayer = { id: data.id, name: data.name, teamId: data.team_id };
-        await savePlayers([localPlayer]);
-        setCurrentBatsman(localPlayer);
-        setPlayerNames(prev => new Map(prev).set(data.id, data.name));
-      }
-    } else {
+    if (player) {
       setCurrentBatsman(player);
+      setPlayerNames(prev => new Map(prev).set(playerId, player.name));
     }
 
     // Add to batsmen state
@@ -558,16 +521,9 @@ export function useLocalMatch(): UseLocalMatchReturn {
     if (!match) return;
     
     const player = await getPlayer(playerId);
-    if (!player) {
-      const { data } = await supabase.from('players').select('*').eq('id', playerId).single();
-      if (data) {
-        const localPlayer: LocalPlayer = { id: data.id, name: data.name, teamId: data.team_id };
-        await savePlayers([localPlayer]);
-        setCurrentBowler(localPlayer);
-        setPlayerNames(prev => new Map(prev).set(data.id, data.name));
-      }
-    } else {
+    if (player) {
       setCurrentBowler(player);
+      setPlayerNames(prev => new Map(prev).set(playerId, player.name));
     }
 
     // Update bowler state
@@ -682,6 +638,10 @@ export function useLocalMatch(): UseLocalMatchReturn {
     };
     setInnings2(newInnings);
     await saveInnings(newInnings);
+    
+    // Reset batsmen and bowlers state for new innings
+    setBatsmenState([]);
+    setBowlersState([]);
     
     setCurrentInningsNumber(2);
     setShowInningsSummary(false);
