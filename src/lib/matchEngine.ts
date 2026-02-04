@@ -157,10 +157,10 @@ export function deriveInningsState(
       });
     });
 
-  // Process events in order
-  let currentOverNumber = 1;
-  let legalBallsInOver = 0;
+  // Process events in order - properly tracking overs
+  let totalLegalBalls = 0;
   let currentOverDeliveries: OverDelivery[] = [];
+  let lastProcessedOverNumber = 0;
 
   for (const event of events) {
     const delivery = eventToOverDelivery(event);
@@ -243,35 +243,47 @@ export function deriveInningsState(
       bowlerStat.noBalls += 1;
     }
 
-    // Track over progress
-    if (event.overNumber !== currentOverNumber) {
-      // Over changed - recalculate for current over
-      currentOverNumber = event.overNumber;
+    // Track over progress - use the stored overNumber to detect over changes
+    if (event.overNumber !== lastProcessedOverNumber) {
+      // New over started - reset current over deliveries
       currentOverDeliveries = [];
-      legalBallsInOver = 0;
+      lastProcessedOverNumber = event.overNumber;
     }
 
     currentOverDeliveries.push(delivery);
     
     if (event.isLegalDelivery) {
-      legalBallsInOver += 1;
+      totalLegalBalls += 1;
       bowlerStat.ballsBowled += 1;
     }
-
-    // Check over completion
-    if (legalBallsInOver >= 6) {
-      state.totalOversCompleted += 1;
-      bowlerStat.oversBowled += 1;
-      // Don't reset here - wait for next over's first ball
-    }
-
-    state.currentBatsmanId = delivery.isWicket ? null : event.batsmanId;
-    state.currentBowlerId = event.bowlerId;
   }
 
-  state.currentOverNumber = currentOverNumber;
-  state.currentOverBalls = legalBallsInOver >= 6 ? 0 : legalBallsInOver;
-  state.currentOverDeliveries = legalBallsInOver >= 6 ? [] : currentOverDeliveries;
+  // Calculate completed overs and current over balls from total legal balls
+  state.totalOversCompleted = Math.floor(totalLegalBalls / 6);
+  state.currentOverBalls = totalLegalBalls % 6;
+  
+  // Current over number is completed overs + 1 (or same if just finished an over)
+  state.currentOverNumber = state.totalOversCompleted + 1;
+  
+  // If we just completed an over (currentOverBalls is 0 and we have events), 
+  // the current over deliveries should be empty (waiting for new over)
+  if (state.currentOverBalls === 0 && events.length > 0) {
+    state.currentOverDeliveries = [];
+  } else {
+    state.currentOverDeliveries = currentOverDeliveries;
+  }
+
+  // Update bowler overs from total balls
+  state.bowlerStats.forEach(bowler => {
+    bowler.oversBowled = Math.floor(bowler.ballsBowled / 6);
+  });
+
+  // Set current batsman and bowler from last event
+  if (events.length > 0) {
+    const lastEvent = events[events.length - 1];
+    state.currentBatsmanId = lastEvent.eventType === 'WICKET' ? null : lastEvent.batsmanId;
+    state.currentBowlerId = lastEvent.bowlerId;
+  }
 
   return state;
 }
@@ -376,4 +388,12 @@ export function calculateMatchResult(
       resultDescription: `${innings1.battingTeamId === team1Id ? team1Name : team2Name} Won by ${runsDiff} run${runsDiff !== 1 ? 's' : ''}`
     };
   }
+}
+
+// Calculate the correct over number for a new event
+export function getNextOverNumber(events: DeliveryEvent[], inningsNumber: number): number {
+  const inningsEvents = events.filter(e => e.inningsNumber === inningsNumber);
+  const legalBalls = inningsEvents.filter(e => e.isLegalDelivery).length;
+  // Over number is 1-indexed, so first over is 1, after 6 balls it becomes 2, etc.
+  return Math.floor(legalBalls / 6) + 1;
 }
