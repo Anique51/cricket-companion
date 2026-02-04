@@ -30,6 +30,7 @@ import {
 import {
   deriveInningsState,
   getEventTypeForAction,
+  getNextOverNumber,
   calculateRunRate,
   calculateRequiredRunRate,
   formatOvers,
@@ -84,6 +85,7 @@ export interface UseLocalMatchReturn {
   endMatchManually: () => Promise<void>;
   syncMatch: () => Promise<boolean>;
   openBowlerModal: () => void;
+  startRematch: () => Promise<string | null>;
   
   // Modals
   showBatsmanModal: boolean;
@@ -336,6 +338,9 @@ export function useLocalMatch(): UseLocalMatchReturn {
     }
 
     const { eventType, runs, isLegal } = getEventTypeForAction(action);
+    
+    // Calculate the correct over number for this event
+    const overNumber = getNextOverNumber(events, currentInningsNumber);
     const newLegalCount = isLegal ? legalBallCount + 1 : legalBallCount;
 
     // Create event IMMEDIATELY
@@ -343,7 +348,7 @@ export function useLocalMatch(): UseLocalMatchReturn {
       id: generateId(),
       matchId: match.id,
       inningsNumber: currentInningsNumber,
-      overNumber: currentInnings.currentOverNumber,
+      overNumber: overNumber,
       eventType,
       runsScored: runs,
       isLegalDelivery: isLegal,
@@ -410,7 +415,7 @@ export function useLocalMatch(): UseLocalMatchReturn {
         setShowBowlerModal(true);
       }
     }
-  }, [match, currentBatsman, currentBowler, currentInnings, currentInningsNumber, legalBallCount, target, teamSizes, batsmenState]);
+  }, [match, currentBatsman, currentBowler, currentInnings, currentInningsNumber, legalBallCount, target, teamSizes, batsmenState, events]);
 
   // Handle no-ball options
   const handleNoBallOption = useCallback((option: 'noball' | 'noball_four' | 'noball_six') => {
@@ -421,12 +426,15 @@ export function useLocalMatch(): UseLocalMatchReturn {
     }
 
     const { eventType, runs, isLegal } = getEventTypeForAction(option);
+    
+    // Calculate the correct over number
+    const overNumber = getNextOverNumber(events, currentInningsNumber);
 
     const event: DeliveryEvent = {
       id: generateId(),
       matchId: match.id,
       inningsNumber: currentInningsNumber,
-      overNumber: currentInnings.currentOverNumber,
+      overNumber: overNumber,
       eventType,
       runsScored: runs,
       isLegalDelivery: isLegal,
@@ -442,7 +450,7 @@ export function useLocalMatch(): UseLocalMatchReturn {
     if (target && currentInnings.totalRuns + runs >= target) {
       handleMatchEnd();
     }
-  }, [match, currentBatsman, currentBowler, currentInnings, currentInningsNumber, target]);
+  }, [match, currentBatsman, currentBowler, currentInnings, currentInningsNumber, target, events]);
 
   // Undo last delivery
   const undoLastDelivery = useCallback(async () => {
@@ -680,6 +688,41 @@ export function useLocalMatch(): UseLocalMatchReturn {
     setShowBowlerModal(true);
   }, []);
 
+  // Start rematch with same configuration
+  const startRematch = useCallback(async (): Promise<string | null> => {
+    if (!match) return null;
+    
+    try {
+      const newMatchId = generateId();
+      
+      // Create new match with same config
+      const newMatch: LocalMatch = {
+        id: newMatchId,
+        team1Id: match.team1Id,
+        team2Id: match.team2Id,
+        team1Name: match.team1Name,
+        team2Name: match.team2Name,
+        team1ShortName: match.team1ShortName,
+        team2ShortName: match.team2ShortName,
+        totalOvers: match.totalOvers,
+        status: 'LIVE',
+        winnerId: null,
+        resultDescription: null,
+        createdAt: Date.now(),
+        completedAt: null,
+        syncedAt: null,
+      };
+      
+      await saveMatch(newMatch);
+      
+      return newMatchId;
+    } catch (error) {
+      console.error('Error starting rematch:', error);
+      toast.error('Failed to start rematch');
+      return null;
+    }
+  }, [match]);
+
   return {
     match,
     currentInnings,
@@ -707,6 +750,7 @@ export function useLocalMatch(): UseLocalMatchReturn {
     endMatchManually,
     syncMatch,
     openBowlerModal,
+    startRematch,
     showBatsmanModal,
     showBowlerModal,
     showInningsSummary,

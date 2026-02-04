@@ -49,6 +49,7 @@ export default function LocalMatchScoring() {
     endMatchManually,
     syncMatch,
     openBowlerModal,
+    startRematch,
     showBatsmanModal,
     showBowlerModal,
     showInningsSummary,
@@ -385,6 +386,7 @@ export default function LocalMatchScoring() {
         } : null}
         team1={team1}
         team2={team2}
+        onRematch={startRematch}
       />
 
       <FullScorecard
