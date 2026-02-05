@@ -2,7 +2,7 @@
 // NEVER called during live scoring
 
 import { supabase } from '@/integrations/supabase/client';
-import type { LocalMatch, DeliveryEvent, LocalInnings, LocalBatsmanState, LocalBowlerState, LocalPlayer } from './localDb';
+import type { LocalMatch, DeliveryEvent } from './localDb';
 import { 
   getMatch, 
   getAllMatchEvents, 
@@ -10,7 +10,9 @@ import {
   getBatsmenState, 
   getBowlersState,
   saveMatch,
-  getMatchesByStatus
+  getMatchesByStatus,
+  getTeamPlayers,
+  generateId
 } from './localDb';
 import { deriveInningsState } from './matchEngine';
 
@@ -33,7 +35,7 @@ export async function syncMatchToSupabase(matchId: string): Promise<SyncResult> 
     const events = await getAllMatchEvents(matchId);
     const inningsList = await getMatchInnings(matchId);
 
-    // Get player names for stats
+    // Get player names from local DB first
     const playerIds = new Set<string>();
     events.forEach(e => {
       playerIds.add(e.batsmanId);
@@ -41,34 +43,62 @@ export async function syncMatchToSupabase(matchId: string): Promise<SyncResult> 
     });
 
     const playerNames = new Map<string, string>();
+    
+    // Load from local first
+    const team1Players = await getTeamPlayers(localMatch.team1Id);
+    const team2Players = await getTeamPlayers(localMatch.team2Id);
+    [...team1Players, ...team2Players].forEach(p => {
+      playerNames.set(p.id, p.name);
+    });
+    
+    // Fallback to Supabase for any missing
     for (const playerId of playerIds) {
-      const { data } = await supabase
-        .from('players')
-        .select('name')
-        .eq('id', playerId)
-        .single();
-      if (data) {
-        playerNames.set(playerId, data.name);
+      if (!playerNames.has(playerId)) {
+        const { data } = await supabase
+          .from('players')
+          .select('name')
+          .eq('id', playerId)
+          .single();
+        if (data) {
+          playerNames.set(playerId, data.name);
+        }
       }
     }
 
-    // Begin transaction-like sync (all or nothing)
-    // 1. Create or update match
-    const { error: matchError } = await supabase
+    // 1. Check if match exists
+    const { data: existingMatch } = await supabase
       .from('matches')
-      .upsert({
-        id: localMatch.id,
-        team1_id: localMatch.team1Id,
-        team2_id: localMatch.team2Id,
-        total_overs: localMatch.totalOvers,
-        status: localMatch.status === 'PENDING_SYNC' ? 'completed' : localMatch.status.toLowerCase(),
-        winner_team_id: localMatch.winnerId,
-        result_description: localMatch.resultDescription,
-        created_at: new Date(localMatch.createdAt).toISOString(),
-        completed_at: localMatch.completedAt ? new Date(localMatch.completedAt).toISOString() : null,
-      });
+      .select('id')
+      .eq('id', localMatch.id)
+      .maybeSingle();
 
-    if (matchError) throw matchError;
+    if (existingMatch) {
+      const { error } = await supabase
+        .from('matches')
+        .update({
+          status: 'completed',
+          winner_team_id: localMatch.winnerId,
+          result_description: localMatch.resultDescription,
+          completed_at: localMatch.completedAt ? new Date(localMatch.completedAt).toISOString() : null,
+        })
+        .eq('id', localMatch.id);
+      if (error) throw error;
+    } else {
+      const { error } = await supabase
+        .from('matches')
+        .insert({
+          id: localMatch.id,
+          team1_id: localMatch.team1Id,
+          team2_id: localMatch.team2Id,
+          total_overs: localMatch.totalOvers,
+          status: 'completed',
+          winner_team_id: localMatch.winnerId,
+          result_description: localMatch.resultDescription,
+          created_at: new Date(localMatch.createdAt).toISOString(),
+          completed_at: localMatch.completedAt ? new Date(localMatch.completedAt).toISOString() : null,
+        });
+      if (error) throw error;
+    }
 
     // 2. Sync each innings
     for (const localInnings of inningsList) {
@@ -87,28 +117,90 @@ export async function syncMatchToSupabase(matchId: string): Promise<SyncResult> 
       );
 
       // Create innings record
-      const { data: inningsData, error: inningsError } = await supabase
+      // Check if innings exists first
+      const { data: existingInnings } = await supabase
         .from('innings')
-        .upsert({
-          match_id: matchId,
-          innings_number: localInnings.inningsNumber,
-          batting_team_id: localInnings.battingTeamId,
-          bowling_team_id: localInnings.bowlingTeamId,
-          total_runs: inningsState.totalRuns,
-          total_wickets: inningsState.totalWickets,
-          total_overs_completed: inningsState.totalOversCompleted,
-          total_extras: inningsState.totalExtras,
-          is_completed: localInnings.isCompleted,
-        })
         .select()
-        .single();
+        .eq('match_id', matchId)
+        .eq('innings_number', localInnings.inningsNumber)
+        .maybeSingle();
 
-      if (inningsError) throw inningsError;
+      let inningsData;
+      if (existingInnings) {
+        const { data, error } = await supabase
+          .from('innings')
+          .update({
+            total_runs: inningsState.totalRuns,
+            total_wickets: inningsState.totalWickets,
+            total_overs_completed: inningsState.totalOversCompleted,
+            total_extras: inningsState.totalExtras,
+            is_completed: localInnings.isCompleted,
+          })
+          .eq('id', existingInnings.id)
+          .select()
+          .single();
+        if (error) throw error;
+        inningsData = data;
+      } else {
+        const { data, error } = await supabase
+          .from('innings')
+          .insert({
+            match_id: matchId,
+            innings_number: localInnings.inningsNumber,
+            batting_team_id: localInnings.battingTeamId,
+            bowling_team_id: localInnings.bowlingTeamId,
+            total_runs: inningsState.totalRuns,
+            total_wickets: inningsState.totalWickets,
+            total_overs_completed: inningsState.totalOversCompleted,
+            total_extras: inningsState.totalExtras,
+            is_completed: localInnings.isCompleted,
+          })
+          .select()
+          .single();
+        if (error) throw error;
+        inningsData = data;
+      }
+
+      if (!inningsData) {
+        throw new Error('Failed to sync innings');
+      }
+
+      // Delete existing stats before inserting new ones
+      await supabase.from('match_batting_stats')
+        .delete()
+        .eq('match_id', matchId)
+        .eq('innings_number', localInnings.inningsNumber);
+      
+      await supabase.from('match_bowling_stats')
+        .delete()
+        .eq('match_id', matchId)
+        .eq('innings_number', localInnings.inningsNumber);
+
+      await supabase.from('batsman_innings_stats')
+        .delete()
+        .eq('innings_id', inningsData.id);
+      
+      await supabase.from('bowler_innings_stats')
+        .delete()
+        .eq('innings_id', inningsData.id);
+
+      // Delete old overs and deliveries
+      const { data: oldOvers } = await supabase
+        .from('overs')
+        .select('id')
+        .eq('innings_id', inningsData.id);
+      
+      if (oldOvers && oldOvers.length > 0) {
+        for (const over of oldOvers) {
+          await supabase.from('deliveries').delete().eq('over_id', over.id);
+        }
+        await supabase.from('overs').delete().eq('innings_id', inningsData.id);
+      }
 
       // Sync batting stats
       const battingStats = Array.from(inningsState.batsmanStats.values());
       for (const stat of battingStats) {
-        await supabase.from('match_batting_stats').upsert({
+        await supabase.from('match_batting_stats').insert({
           match_id: matchId,
           innings_number: localInnings.inningsNumber,
           team_id: localInnings.battingTeamId,
@@ -126,7 +218,7 @@ export async function syncMatchToSupabase(matchId: string): Promise<SyncResult> 
       // Sync bowling stats
       const bowlingStats = Array.from(inningsState.bowlerStats.values());
       for (const stat of bowlingStats) {
-        await supabase.from('match_bowling_stats').upsert({
+        await supabase.from('match_bowling_stats').insert({
           match_id: matchId,
           innings_number: localInnings.inningsNumber,
           team_id: localInnings.bowlingTeamId,
@@ -157,10 +249,11 @@ export async function syncMatchToSupabase(matchId: string): Promise<SyncResult> 
         const overRuns = overEvents.reduce((sum, e) => sum + e.runsScored, 0);
         const overWickets = overEvents.filter(e => e.eventType === 'WICKET').length;
 
-        // Create over
+        // Create over with new UUID
         const { data: overData, error: overError } = await supabase
           .from('overs')
-          .upsert({
+          .insert({
+            id: generateId(),
             innings_id: inningsData.id,
             over_number: overNumber,
             bowler_id: bowlerId,
@@ -176,8 +269,8 @@ export async function syncMatchToSupabase(matchId: string): Promise<SyncResult> 
         // Create deliveries
         for (let i = 0; i < overEvents.length; i++) {
           const event = overEvents[i];
-          await supabase.from('deliveries').upsert({
-            id: event.id,
+          await supabase.from('deliveries').insert({
+            id: generateId(),
             over_id: overData.id,
             innings_id: inningsData.id,
             ball_number: i + 1,
@@ -194,7 +287,7 @@ export async function syncMatchToSupabase(matchId: string): Promise<SyncResult> 
 
       // Also sync to batsman_innings_stats and bowler_innings_stats
       for (const stat of battingStats) {
-        await supabase.from('batsman_innings_stats').upsert({
+        await supabase.from('batsman_innings_stats').insert({
           innings_id: inningsData.id,
           batsman_id: stat.playerId,
           runs_scored: stat.runsScored,
@@ -207,7 +300,7 @@ export async function syncMatchToSupabase(matchId: string): Promise<SyncResult> 
       }
 
       for (const stat of bowlingStats) {
-        await supabase.from('bowler_innings_stats').upsert({
+        await supabase.from('bowler_innings_stats').insert({
           innings_id: inningsData.id,
           bowler_id: stat.playerId,
           overs_bowled: stat.oversBowled,

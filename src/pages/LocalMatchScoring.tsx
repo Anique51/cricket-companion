@@ -58,6 +58,7 @@ export default function LocalMatchScoring() {
     setShowInningsSummary,
     setShowNoBallModal,
     handleNoBallOption,
+    innings1,
   } = useLocalMatch();
 
   const [showSecondInningsSetup, setShowSecondInningsSetup] = useState(false);
@@ -126,13 +127,13 @@ export default function LocalMatchScoring() {
     );
   }
 
-  // Create first innings object for SecondInningsSetup
-  const firstInningsForSetup: Innings | null = firstInningsRuns !== null ? {
+  // Create first innings object for SecondInningsSetup based on actual innings1 data
+  const firstInningsForSetup: Innings | null = firstInningsRuns !== null && innings1 ? {
     id: '',
     match_id: match.id,
     innings_number: 1,
-    batting_team_id: currentInnings?.battingTeamId === match.team1Id ? match.team2Id : match.team1Id,
-    bowling_team_id: currentInnings?.battingTeamId || '',
+    batting_team_id: innings1.battingTeamId,
+    bowling_team_id: innings1.bowlingTeamId,
     total_runs: firstInningsRuns,
     total_wickets: 0,
     total_overs_completed: 0,

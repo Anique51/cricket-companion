@@ -101,6 +101,10 @@ export interface UseLocalMatchReturn {
   handleNoBallOption: (option: 'noball' | 'noball_four' | 'noball_six') => void;
   
   pendingBowlerChange: boolean;
+  
+  // Expose innings data for second innings setup
+  innings1: LocalInnings | null;
+  innings2: LocalInnings | null;
 }
 
 export function useLocalMatch(): UseLocalMatchReturn {
@@ -763,5 +767,7 @@ export function useLocalMatch(): UseLocalMatchReturn {
     setShowNoBallModal,
     handleNoBallOption,
     pendingBowlerChange,
+    innings1,
+    innings2,
   };
 }
