@@ -527,8 +527,11 @@ export function useLocalMatch(): UseLocalMatchReturn {
     
     if (pendingBowlerChange) {
       setPendingBowlerChange(false);
-      // Check if it's the last over
-      if (currentInnings && match && currentInnings.totalOversCompleted + 1 >= match.totalOvers) {
+
+      // IMPORTANT: at this point the wicket ball has already been applied to `events`,
+      // so `currentInnings.totalOversCompleted` already includes the just-completed over.
+      // Therefore, we must NOT add +1 here.
+      if (currentInnings && match && currentInnings.totalOversCompleted >= match.totalOvers) {
         handleInningsEnd(true);
       } else {
         setShowBowlerModal(true);
