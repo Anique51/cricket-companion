@@ -369,23 +369,32 @@ export function calculateMatchResult(
   team1Name: string,
   team2Name: string,
   team1Id: string,
+  team2Id: string,
   teamSize: number
 ): { winnerId: string | null; resultDescription: string } {
   const target = innings1.totalRuns + 1;
   
+  // Determine which team batted first and second
+  const battingFirstTeamId = innings1.battingTeamId;
+  const battingSecondTeamId = innings2.battingTeamId;
+  
+  // Get team names based on IDs
+  const battingFirstTeamName = battingFirstTeamId === team1Id ? team1Name : team2Name;
+  const battingSecondTeamName = battingSecondTeamId === team1Id ? team1Name : team2Name;
+  
   if (innings2.totalRuns >= target) {
-    // Chasing team won
+    // Chasing team (batting second) won
     const wicketsRemaining = Math.max(teamSize - innings2.totalWickets, 0);
     return {
-      winnerId: innings2.battingTeamId,
-      resultDescription: `${innings2.battingTeamId === team1Id ? team1Name : team2Name} Won by ${wicketsRemaining} wicket${wicketsRemaining !== 1 ? 's' : ''}`
+      winnerId: battingSecondTeamId,
+      resultDescription: `${battingSecondTeamName} Won by ${wicketsRemaining} wicket${wicketsRemaining !== 1 ? 's' : ''}`
     };
   } else {
-    // Batting first team won
+    // Batting first team won (defended their total)
     const runsDiff = innings1.totalRuns - innings2.totalRuns;
     return {
-      winnerId: innings1.battingTeamId,
-      resultDescription: `${innings1.battingTeamId === team1Id ? team1Name : team2Name} Won by ${runsDiff} run${runsDiff !== 1 ? 's' : ''}`
+      winnerId: battingFirstTeamId,
+      resultDescription: `${battingFirstTeamName} Won by ${runsDiff} run${runsDiff !== 1 ? 's' : ''}`
     };
   }
 }
