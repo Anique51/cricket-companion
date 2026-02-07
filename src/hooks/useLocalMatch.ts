@@ -367,8 +367,8 @@ export function useLocalMatch(): UseLocalMatchReturn {
     // Persist to IndexedDB (async, non-blocking)
     addDeliveryEvent(event).catch(console.error);
 
-    // Check for over completion
-    const isOverComplete = newLegalCount >= 6;
+    // Check for over completion (only if this was a legal delivery)
+    const isOverComplete = isLegal && newLegalCount >= 6;
     
     // Check for wicket
     if (action === 'wicket') {
@@ -387,20 +387,28 @@ export function useLocalMatch(): UseLocalMatchReturn {
       ));
       saveBatsmanState(updatedBatsmanState).catch(console.error);
 
-      // Check if all out
+      // Check if all out - this is the ONLY condition that ends innings on wicket
       const teamSize = teamSizes.get(currentInnings.battingTeamId) || 10;
       const newWickets = currentInnings.totalWickets + 1;
       
       if (newWickets >= teamSize) {
-        // All out - end innings
+        // All out - end innings (regardless of whether over is complete)
         handleInningsEnd(isOverComplete);
-      } else {
-        // Need new batsman
-        if (isOverComplete) {
-          setPendingBowlerChange(true);
-        }
-        setShowBatsmanModal(true);
+        return;
       }
+      
+      // Not all out - need new batsman
+      // Mark if we need bowler change after batsman selection
+      if (isOverComplete) {
+        // Check if this completes the last over of the innings
+        if (currentInnings.totalOversCompleted + 1 >= match.totalOvers) {
+          // Last over completed + wicket (but not all out) - end innings
+          handleInningsEnd(true);
+          return;
+        }
+        setPendingBowlerChange(true);
+      }
+      setShowBatsmanModal(true);
       return;
     }
 
@@ -410,7 +418,7 @@ export function useLocalMatch(): UseLocalMatchReturn {
       return;
     }
 
-    // Check for over completion
+    // Check for over completion (non-wicket deliveries)
     if (isOverComplete) {
       // Check if it's the last over
       if (currentInnings.totalOversCompleted + 1 >= match.totalOvers) {
@@ -605,7 +613,7 @@ export function useLocalMatch(): UseLocalMatchReturn {
     
     const result = calculateMatchResult(
       inn1State, inn2State,
-      match.team1Name, match.team2Name, match.team1Id, teamSize
+      match.team1Name, match.team2Name, match.team1Id, match.team2Id, teamSize
     );
     
     const updatedMatch: LocalMatch = {
