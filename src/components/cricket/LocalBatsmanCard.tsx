@@ -1,7 +1,7 @@
+import React, { useState, useRef, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import type { LocalPlayer } from '@/lib/localDb';
 import type { BatsmanStats } from '@/lib/matchEngine';
-import { useState } from 'react';
 import { LogOut } from 'lucide-react';
 
 interface LocalBatsmanCardProps {
@@ -20,11 +20,29 @@ export function LocalBatsmanCard({ batsman, stats, className, onRetireOut }: Loc
   
   const strikeRate = balls > 0 ? ((runs / balls) * 100).toFixed(1) : '0.0';
 
-  const handleClick = () => {
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (batsman && onRetireOut) {
       setShowRetireOption(prev => !prev);
     }
   };
+
+  // Close on outside click
+  const cardRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showRetireOption) return;
+    const handler = (e: MouseEvent) => {
+      if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
+        setShowRetireOption(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    document.addEventListener('touchstart', handler as any);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('touchstart', handler as any);
+    };
+  }, [showRetireOption]);
 
   const handleRetire = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -33,7 +51,7 @@ export function LocalBatsmanCard({ batsman, stats, className, onRetireOut }: Loc
   };
 
   return (
-    <div className={cn("card-player relative", className)}>
+    <div ref={cardRef} className={cn("card-player relative", className)}>
       <div 
         className={cn("cursor-pointer", onRetireOut && "active:scale-[0.98] transition-transform")}
         onClick={handleClick}
