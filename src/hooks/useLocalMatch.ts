@@ -73,6 +73,7 @@ export interface UseLocalMatchReturn {
   isLoading: boolean;
   canUndo: boolean;
   dismissedBatsmanIds: string[];
+  retiredBatsmanIds: string[];
   
   // Actions
   recordDelivery: (action: ScoringAction) => void;
@@ -82,10 +83,11 @@ export interface UseLocalMatchReturn {
   startSecondInnings: (battingTeamId: string, batsmanId: string, bowlerId: string) => Promise<void>;
   loadMatch: (matchId: string) => Promise<void>;
   endInningsManually: () => Promise<void>;
-  endMatchManually: () => Promise<void>;
+  endMatchManually: (winnerId: string) => Promise<void>;
   syncMatch: () => Promise<boolean>;
   openBowlerModal: () => void;
   startRematch: () => Promise<string | null>;
+  retireCurrentBatsman: () => void;
   
   // Modals
   showBatsmanModal: boolean;
@@ -93,14 +95,17 @@ export interface UseLocalMatchReturn {
   showInningsSummary: boolean;
   showMatchResult: boolean;
   showNoBallModal: boolean;
+  showRetireModal: boolean;
   setShowBatsmanModal: (show: boolean) => void;
   setShowBowlerModal: (show: boolean) => void;
   setShowInningsSummary: (show: boolean) => void;
   setShowMatchResult: (show: boolean) => void;
   setShowNoBallModal: (show: boolean) => void;
+  setShowRetireModal: (show: boolean) => void;
   handleNoBallOption: (option: 'noball' | 'noball_four' | 'noball_six') => void;
   
   pendingBowlerChange: boolean;
+  isRetiring: boolean;
   
   // Expose innings data for second innings setup
   innings1: LocalInnings | null;
@@ -135,7 +140,10 @@ export function useLocalMatch(): UseLocalMatchReturn {
   const [showInningsSummary, setShowInningsSummary] = useState(false);
   const [showMatchResult, setShowMatchResult] = useState(false);
   const [showNoBallModal, setShowNoBallModal] = useState(false);
+  const [showRetireModal, setShowRetireModal] = useState(false);
   const [pendingBowlerChange, setPendingBowlerChange] = useState(false);
+  const [isRetiring, setIsRetiring] = useState(false);
+  const [retiredBatsmanIds, setRetiredBatsmanIds] = useState<string[]>([]);
 
   // Initialize IndexedDB
   useEffect(() => {
@@ -512,25 +520,34 @@ export function useLocalMatch(): UseLocalMatchReturn {
       setPlayerNames(prev => new Map(prev).set(playerId, player.name));
     }
 
-    // Add to batsmen state
-    const newBatsmanState: LocalBatsmanState = {
-      playerId,
-      inningsNumber: currentInningsNumber,
-      matchId: match.id,
-      battingOrder: batsmenState.filter(b => b.inningsNumber === currentInningsNumber).length + 1,
-      isOut: false,
-    };
-    setBatsmenState(prev => [...prev, newBatsmanState]);
-    await saveBatsmanState(newBatsmanState);
+    // If this player was retired, remove from retired list (they're back)
+    setRetiredBatsmanIds(prev => prev.filter(id => id !== playerId));
+
+    // Check if this batsman already exists in state (e.g. returning from retire)
+    const existsInState = batsmenState.some(
+      b => b.playerId === playerId && b.inningsNumber === currentInningsNumber
+    );
+
+    if (!existsInState) {
+      // Add to batsmen state only if new
+      const newBatsmanState: LocalBatsmanState = {
+        playerId,
+        inningsNumber: currentInningsNumber,
+        matchId: match.id,
+        battingOrder: batsmenState.filter(b => b.inningsNumber === currentInningsNumber).length + 1,
+        isOut: false,
+      };
+      setBatsmenState(prev => [...prev, newBatsmanState]);
+      await saveBatsmanState(newBatsmanState);
+    }
     
     setShowBatsmanModal(false);
+    setShowRetireModal(false);
+    setIsRetiring(false);
     
     if (pendingBowlerChange) {
       setPendingBowlerChange(false);
 
-      // IMPORTANT: at this point the wicket ball has already been applied to `events`,
-      // so `currentInnings.totalOversCompleted` already includes the just-completed over.
-      // Therefore, we must NOT add +1 here.
       if (currentInnings && match && currentInnings.totalOversCompleted >= match.totalOvers) {
         handleInningsEnd(true);
       } else {
@@ -679,10 +696,56 @@ export function useLocalMatch(): UseLocalMatchReturn {
     await handleInningsEnd(false);
   }, [handleInningsEnd]);
 
-  // End match manually
-  const endMatchManually = useCallback(async () => {
-    await handleMatchEnd();
-  }, [handleMatchEnd]);
+  // End match manually with winner selection
+  const endMatchManually = useCallback(async (winnerId: string) => {
+    if (!match) return;
+    
+    const winnerName = winnerId === match.team1Id ? match.team1Name : match.team2Name;
+    
+    const updatedMatch: LocalMatch = {
+      ...match,
+      status: 'PENDING_SYNC',
+      winnerId,
+      resultDescription: `${winnerName} Won`,
+      completedAt: Date.now(),
+    };
+    
+    setMatch(updatedMatch);
+    await saveMatch(updatedMatch);
+    
+    // Mark innings complete
+    if (innings1) {
+      const updated = { ...innings1, isCompleted: true };
+      setInnings1(updated);
+      await saveInnings(updated);
+    }
+    if (innings2) {
+      const updated = { ...innings2, isCompleted: true };
+      setInnings2(updated);
+      await saveInnings(updated);
+    }
+    
+    setShowMatchResult(true);
+  }, [match, innings1, innings2]);
+
+  // Retire current batsman - show selection modal
+  const retireCurrentBatsman = useCallback(() => {
+    if (!currentBatsman) return;
+    // Add current batsman to retired list
+    setRetiredBatsmanIds(prev => [...prev, currentBatsman.id]);
+    setIsRetiring(true);
+    setShowRetireModal(true);
+  }, [currentBatsman]);
+
+  // Cancel retire - undo the retire action
+  const handleSetShowRetireModal = useCallback((show: boolean) => {
+    if (!show && isRetiring) {
+      // User cancelled - remove last added retired batsman
+      setRetiredBatsmanIds(prev => prev.slice(0, -1));
+      setIsRetiring(false);
+    }
+    setShowRetireModal(show);
+  }, [isRetiring]);
 
   // Sync match to Supabase
   const syncMatch = useCallback(async (): Promise<boolean> => {
@@ -755,6 +818,7 @@ export function useLocalMatch(): UseLocalMatchReturn {
     isLoading,
     canUndo,
     dismissedBatsmanIds,
+    retiredBatsmanIds,
     recordDelivery,
     undoLastDelivery,
     selectNewBatsman,
@@ -766,18 +830,22 @@ export function useLocalMatch(): UseLocalMatchReturn {
     syncMatch,
     openBowlerModal,
     startRematch,
+    retireCurrentBatsman,
     showBatsmanModal,
     showBowlerModal,
     showInningsSummary,
     showMatchResult,
     showNoBallModal,
+    showRetireModal,
     setShowBatsmanModal,
     setShowBowlerModal,
     setShowInningsSummary,
     setShowMatchResult,
     setShowNoBallModal,
+    setShowRetireModal: handleSetShowRetireModal,
     handleNoBallOption,
     pendingBowlerChange,
+    isRetiring,
     innings1,
     innings2,
   };
