@@ -13,8 +13,12 @@ interface PlayerSelectModalProps {
   title: string;
   teamId: string;
   excludePlayerIds?: string[];
+  retiredPlayerIds?: string[];
   type: 'batsman' | 'bowler';
+  onClose?: () => void;
 }
+
+const EMPTY_RETIRED: string[] = [];
 
 export function PlayerSelectModal({ 
   open, 
@@ -22,7 +26,9 @@ export function PlayerSelectModal({
   title, 
   teamId, 
   excludePlayerIds = EMPTY_EXCLUDE,
-  type
+  retiredPlayerIds = EMPTY_RETIRED,
+  type,
+  onClose
 }: PlayerSelectModalProps) {
   const [players, setPlayers] = useState<(Player | LocalPlayer)[]>([]);
   const [loading, setLoading] = useState(false);
@@ -82,7 +88,7 @@ export function PlayerSelectModal({
   };
 
   return (
-    <Dialog open={open} onOpenChange={() => {}}>
+    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen && onClose) onClose(); }}>
       <DialogContent className="max-w-sm mx-auto max-h-[80vh] overflow-hidden">
         <DialogHeader>
           <DialogTitle className="text-center">{title}</DialogTitle>
@@ -97,22 +103,33 @@ export function PlayerSelectModal({
             </div>
           ) : (
             <div className="space-y-2">
-              {players.map((player) => (
-                <button
-                  key={player.id}
-                  onClick={() => onSelect(player.id)}
-                  className={cn(
-                    "w-full p-4 rounded-xl border text-left transition-all",
-                    "hover:border-primary hover:bg-primary/5",
-                    "active:scale-98",
-                    type === 'batsman' 
-                      ? "border-primary/20 hover:border-primary" 
-                      : "border-cricket-wicket/20 hover:border-cricket-wicket"
-                  )}
-                >
-                  <span className="font-medium text-foreground">{getPlayerName(player)}</span>
-                </button>
-              ))}
+              {players.map((player) => {
+                const isRetired = retiredPlayerIds.includes(player.id);
+                return (
+                  <button
+                    key={player.id}
+                    onClick={() => onSelect(player.id)}
+                    className={cn(
+                      "w-full p-4 rounded-xl border text-left transition-all",
+                      "hover:border-primary hover:bg-primary/5",
+                      "active:scale-98",
+                      type === 'batsman' 
+                        ? "border-primary/20 hover:border-primary" 
+                        : "border-cricket-wicket/20 hover:border-cricket-wicket",
+                      isRetired && "border-amber-500/30 bg-amber-500/5"
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-foreground">{getPlayerName(player)}</span>
+                      {isRetired && (
+                        <span className="text-xs font-semibold text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">
+                          Retired Out
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>

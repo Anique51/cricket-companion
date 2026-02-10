@@ -39,6 +39,7 @@ export default function LocalMatchScoring() {
     isLoading,
     canUndo,
     dismissedBatsmanIds,
+    retiredBatsmanIds,
     recordDelivery,
     undoLastDelivery,
     selectNewBatsman,
@@ -50,19 +51,24 @@ export default function LocalMatchScoring() {
     syncMatch,
     openBowlerModal,
     startRematch,
+    retireCurrentBatsman,
     showBatsmanModal,
     showBowlerModal,
     showInningsSummary,
     showMatchResult,
     showNoBallModal,
+    showRetireModal,
     setShowInningsSummary,
     setShowNoBallModal,
+    setShowRetireModal,
     handleNoBallOption,
+    isRetiring,
     innings1,
   } = useLocalMatch();
 
   const [showSecondInningsSetup, setShowSecondInningsSetup] = useState(false);
   const [showScorecard, setShowScorecard] = useState(false);
+  const [showEndMatchDialog, setShowEndMatchDialog] = useState(false);
 
   // Load match on mount
   useEffect(() => {
@@ -287,14 +293,27 @@ export default function LocalMatchScoring() {
                     </AlertDialogTrigger>
                     <AlertDialogContent>
                       <AlertDialogHeader>
-                        <AlertDialogTitle>End Match?</AlertDialogTitle>
+                        <AlertDialogTitle>End Match - Select Winner</AlertDialogTitle>
                         <AlertDialogDescription>
-                          This will end the match immediately. The current score will be saved. This action cannot be undone.
+                          Choose the winning team. This will end the match immediately.
                         </AlertDialogDescription>
                       </AlertDialogHeader>
+                      <div className="space-y-2 my-2">
+                        <button
+                          onClick={() => { endMatchManually(match.team1Id); }}
+                          className="w-full p-4 rounded-xl border border-primary/20 hover:border-primary hover:bg-primary/5 text-left transition-all font-medium"
+                        >
+                          {match.team1Name}
+                        </button>
+                        <button
+                          onClick={() => { endMatchManually(match.team2Id); }}
+                          className="w-full p-4 rounded-xl border border-primary/20 hover:border-primary hover:bg-primary/5 text-left transition-all font-medium"
+                        >
+                          {match.team2Name}
+                        </button>
+                      </div>
                       <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={endMatchManually} className="bg-destructive hover:bg-destructive/90">End Match</AlertDialogAction>
                       </AlertDialogFooter>
                     </AlertDialogContent>
                   </AlertDialog>
@@ -316,7 +335,7 @@ export default function LocalMatchScoring() {
 
         {/* Player Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <LocalBatsmanCard batsman={currentBatsman} stats={batsmanStats} />
+          <LocalBatsmanCard batsman={currentBatsman} stats={batsmanStats} onRetireOut={retireCurrentBatsman} />
           <LocalBowlerCard 
             bowler={currentBowler} 
             stats={bowlerStats} 
@@ -348,6 +367,19 @@ export default function LocalMatchScoring() {
         title="Select New Batsman"
         teamId={currentInnings?.battingTeamId || ''}
         excludePlayerIds={dismissedBatsmanIds}
+        retiredPlayerIds={retiredBatsmanIds}
+        type="batsman"
+      />
+
+      {/* Retire Out - Select replacement batsman */}
+      <PlayerSelectModal
+        open={showRetireModal}
+        onSelect={selectNewBatsman}
+        onClose={() => setShowRetireModal(false)}
+        title="Select Replacement Batsman"
+        teamId={currentInnings?.battingTeamId || ''}
+        excludePlayerIds={[...dismissedBatsmanIds, currentBatsman?.id || ''].filter(Boolean)}
+        retiredPlayerIds={retiredBatsmanIds}
         type="batsman"
       />
 
