@@ -370,7 +370,7 @@ export function calculateMatchResult(
   team2Name: string,
   team1Id: string,
   team2Id: string,
-  teamSize: number
+  chasingTeamSize: number
 ): { winnerId: string | null; resultDescription: string } {
   const target = innings1.totalRuns + 1;
   
@@ -384,7 +384,7 @@ export function calculateMatchResult(
   
   if (innings2.totalRuns >= target) {
     // Chasing team (batting second) won
-    const wicketsRemaining = Math.max(teamSize - innings2.totalWickets, 0);
+    const wicketsRemaining = Math.max(chasingTeamSize - innings2.totalWickets, 0);
     return {
       winnerId: battingSecondTeamId,
       resultDescription: `${battingSecondTeamName} Won by ${wicketsRemaining} wicket${wicketsRemaining !== 1 ? 's' : ''}`
