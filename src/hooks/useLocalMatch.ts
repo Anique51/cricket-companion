@@ -615,9 +615,6 @@ export function useLocalMatch(): UseLocalMatchReturn {
   const handleMatchEnd = useCallback(async () => {
     if (!match) return;
     
-    // Calculate result
-    const teamSize = teamSizes.get(match.team1Id) || 10;
-    
     // Get both innings states
     const inn1Events = events.filter(e => e.inningsNumber === 1);
     const inn2Events = events.filter(e => e.inningsNumber === 2);
@@ -631,9 +628,13 @@ export function useLocalMatch(): UseLocalMatchReturn {
       playerNames, batsmenState, bowlersState
     );
     
+    // Use the chasing team's size for wicket margin calculation
+    const chasingTeamId = innings2?.battingTeamId || '';
+    const chasingTeamSize = teamSizes.get(chasingTeamId) || 10;
+    
     const result = calculateMatchResult(
       inn1State, inn2State,
-      match.team1Name, match.team2Name, match.team1Id, match.team2Id, teamSize
+      match.team1Name, match.team2Name, match.team1Id, match.team2Id, chasingTeamSize
     );
     
     const updatedMatch: LocalMatch = {
