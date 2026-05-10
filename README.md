@@ -1,6 +1,6 @@
 # 🏏 Live Gully Cricket Scoring Web App
 
-A fast, intuitive, and real-time web application designed for scoring gully cricket matches. Built to eliminate manual scoring challenges, this app delivers a smooth live match experience with instant updates, smart controls, and detailed statistics — all optimized for local gameplay scenarios.
+A fast, intuitive, and real-time web application designed for scoring gully cricket matches. Built to eliminate manual scoring challenges, this app delivers a smooth live match experience with instant updates, smart controls, and detailed statistics, all optimized for local gameplay scenarios.
 
 ---
 
